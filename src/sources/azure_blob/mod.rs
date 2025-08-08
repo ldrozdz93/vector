@@ -59,11 +59,12 @@ enum Strategy {
     Test,
 }
 
-/// WIP
-/// A dummy implementation is used as a starter.
-/// The source will send dummy messages at a fixed interval, incrementing a counter every
-/// exec_interval_secs seconds.
-#[configurable_component(source("azure_blob", "Collect logs from Azure Container."))]
+/// Collects logs from Azure Blob Storage.
+///
+/// This source reads objects from Azure Blob Storage by processing events from an Azure Storage Queue.
+/// When a blob is created or modified in the configured container, an event is sent to the queue,
+/// and this source processes those events to read and decode the blob contents.
+#[configurable_component(source("azure_blob", "Collect logs from Azure Blob Storage."))]
 #[derive(Clone, Debug, Derivative)]
 #[derivative(Default)]
 #[serde(default, deny_unknown_fields)]
@@ -73,7 +74,9 @@ pub struct AzureBlobConfig {
     #[serde(default)]
     log_namespace: Option<bool>,
 
-    /// The interval, in seconds, between subsequent dummy messages
+    /// The interval, in seconds, between polls for new queue messages.
+    /// This is only used by the test strategy and will be removed in the future.
+    #[configurable(metadata(docs::hidden))]
     #[serde(default = "default_exec_interval_secs")]
     exec_interval_secs: u64,
 
