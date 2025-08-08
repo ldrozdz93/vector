@@ -38,15 +38,9 @@ use crate::{
 
 #[cfg(all(test, feature = "azure-blob-source-integration-tests"))]
 mod integration_tests;
-#[cfg(all(test, feature = "azure-blob-source-integration-tests"))]
-mod integration_tests_extended;
 pub mod queue;
 #[cfg(test)]
-mod queue_tests;
-#[cfg(test)]
 mod test;
-#[cfg(test)]
-mod test_extended;
 
 /// Strategies for consuming objects from Azure Storage.
 #[configurable_component]

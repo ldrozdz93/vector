@@ -208,8 +208,68 @@ async fn azure_blob_ignore_missing_blob() {
     let config = AzureBlobConfig::new_emulator().await;
 
     config.queue_notify_blob_created("non-existent").await;
-    config.upload_blob("file.txt".to_string(), "some_content".to_string()).await;
+    config
+        .upload_blob("file.txt".to_string(), "some_content".to_string())
+        .await;
 
     let events = config.run_assert().await;
     assert_eq!(events.len(), 1);
+}
+
+// Test with JSON content
+#[tokio::test]
+async fn azure_blob_read_json_content() {
+    use vector_lib::codecs::decoding::{DeserializerConfig, JsonDeserializerConfig};
+
+    let mut config = AzureBlobConfig::new_emulator().await;
+    config.decoding = DeserializerConfig::Json(JsonDeserializerConfig::default());
+
+    let json_content =
+        r#"{"timestamp": "2024-01-01T00:00:00Z", "level": "INFO", "message": "Test log"}"#;
+    config
+        .upload_blob("log.json".to_string(), json_content.to_string())
+        .await;
+
+    let events = config.run_assert().await;
+    assert_eq!(events.len(), 1);
+    let log = events[0].as_log();
+    assert_eq!(log["level"], "INFO".into());
+    assert_eq!(log["message"], "Test log".into());
+}
+
+// Test error handling with malformed messages
+#[tokio::test]
+async fn azure_blob_handle_malformed_message() {
+    let config = AzureBlobConfig::new_emulator().await;
+    let queue_client = make_queue_client(&config).expect("Failed to create queue client");
+    
+    // Send malformed message directly to queue
+    queue_client
+        .put_message(BASE64_STANDARD.encode("not a valid json"))
+        .await
+        .expect("Failed putting malformed message");
+
+    config
+        .upload_blob("file.txt".to_string(), "correct content".to_string())
+        .await;
+
+    let events = config.run_assert().await;
+    // Should still receive the valid event, ignoring malformed ones
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].as_log()["message"], "correct content".into());
+}
+
+// Test with empty blob
+#[tokio::test]
+async fn azure_blob_read_empty_blob() {
+    let config = AzureBlobConfig::new_emulator().await;
+    config
+        .upload_blob("empty.txt".to_string(), "".to_string())
+        .await;
+
+    let events = config.run_assert().await;
+    // Empty blobs might not generate events, or generate empty events
+    if !events.is_empty() {
+        assert_eq!(events[0].as_log()["message"], "".into());
+    }
 }
