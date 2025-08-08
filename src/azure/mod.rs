@@ -41,7 +41,7 @@ pub struct ClientCredentials {
 /// To authenticate only **one** of the following should be set:
 /// 1. `connection_string`
 /// 2. `storage_account` - optionally you can set `client_credentials` to provide credentials,
-///     if `client_credentials` is None, [`DefaultAzureCredential`][dac] would be used.
+///    if `client_credentials` is None, [`DefaultAzureCredential`][dac] would be used.
 ///
 /// [dac]: https://docs.rs/azure_identity/0.17.0/azure_identity/struct.DefaultAzureCredential.html
 pub fn build_container_client(
@@ -86,19 +86,15 @@ pub fn build_container_client(
                 Some(client_credentials_p) => {
                     let http_client: Arc<dyn HttpClient> = new_http_client();
                     let options = TokenCredentialOptions::default();
-                    let creds = std::sync::Arc::new(ClientSecretCredential::new(
-                        http_client.clone(),
+                    std::sync::Arc::new(ClientSecretCredential::new(
+                        Arc::<dyn azure_core::HttpClient>::clone(&http_client),
                         client_credentials_p.tenant_id,
                         client_credentials_p.client_id,
                         client_credentials_p.client_secret,
                         options,
-                    ));
-                    creds
+                    )) as _
                 }
-                None => {
-                    let creds = std::sync::Arc::new(DefaultAzureCredential::default());
-                    creds
-                }
+                None => std::sync::Arc::new(DefaultAzureCredential::default()) as _,
             };
             let auto_creds = std::sync::Arc::new(AutoRefreshingTokenCredential::new(creds));
             let storage_credentials = StorageCredentials::token_credential(auto_creds);
@@ -139,7 +135,7 @@ pub fn build_container_client(
 /// To authenticate only **one** of the following should be set:
 /// 1. `connection_string`
 /// 2. `storage_account` - optionally you can set `client_credentials` to provide credentials,
-///     if `client_credentials` is None, [`DefaultAzureCredential`][dac] would be used.
+///    if `client_credentials` is None, [`DefaultAzureCredential`][dac] would be used.
 ///
 /// [dac]: https://docs.rs/azure_identity/0.17.0/azure_identity/struct.DefaultAzureCredential.html
 pub fn build_queue_client(
@@ -185,19 +181,15 @@ pub fn build_queue_client(
                 Some(client_credentials_p) => {
                     let http_client: Arc<dyn HttpClient> = new_http_client();
                     let options = TokenCredentialOptions::default();
-                    let creds = std::sync::Arc::new(ClientSecretCredential::new(
-                        http_client.clone(),
+                    std::sync::Arc::new(ClientSecretCredential::new(
+                        Arc::<dyn azure_core::HttpClient>::clone(&http_client),
                         client_credentials_p.tenant_id,
                         client_credentials_p.client_id,
                         client_credentials_p.client_secret,
                         options,
-                    ));
-                    creds
+                    )) as _
                 }
-                None => {
-                    let creds = std::sync::Arc::new(DefaultAzureCredential::default());
-                    creds
-                }
+                None => std::sync::Arc::new(DefaultAzureCredential::default()) as _,
             };
             let auto_creds = std::sync::Arc::new(AutoRefreshingTokenCredential::new(creds));
             let storage_credentials = StorageCredentials::token_credential(auto_creds);

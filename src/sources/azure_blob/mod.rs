@@ -38,9 +38,15 @@ use crate::{
 
 #[cfg(all(test, feature = "azure-blob-source-integration-tests"))]
 mod integration_tests;
+#[cfg(all(test, feature = "azure-blob-source-integration-tests"))]
+mod integration_tests_extended;
 pub mod queue;
 #[cfg(test)]
+mod queue_tests;
+#[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_extended;
 
 /// Strategies for consuming objects from Azure Storage.
 #[configurable_component]
@@ -208,7 +214,7 @@ impl AzureBlobStreamer {
         Ok(Self {
             shutdown,
             out,
-            log_namespace: log_namespace.clone(),
+            log_namespace,
             acknowledge,
             decoder: {
                 let framing = FramingConfig::NewlineDelimited(NewlineDelimitedDecoderConfig {
@@ -251,7 +257,7 @@ impl AzureBlobStreamer {
         let mut output_stream = {
             let bytes_received = self.bytes_received.clone();
             let events_received = self.events_received.clone();
-            let log_namespace = self.log_namespace.clone();
+            let log_namespace = self.log_namespace;
             let decoder = self.decoder.clone();
             stream! {
                 // TODO: consider selecting with a shutdown
@@ -353,7 +359,7 @@ impl SourceConfig for AzureBlobConfig {
                         yield BlobPack {
                             row_stream: stream! {
                                 for i in 0..=counter {
-                                    yield format!("{}:{}", counter, i).into_bytes();
+                                    yield format!("{counter}:{i}").into_bytes();
                                 }
                             }.boxed(),
                             success_handler: Box::new(move || {
@@ -390,6 +396,6 @@ impl SourceConfig for AzureBlobConfig {
     }
 }
 
-fn default_exec_interval_secs() -> u64 {
+const fn default_exec_interval_secs() -> u64 {
     1
 }

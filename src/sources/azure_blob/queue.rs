@@ -24,12 +24,14 @@ use vector_lib::{
 use crate::{
     azure,
     internal_events::{
-        QueueMessageDeleteError, QueueMessageProcessingError, QueueMessageReceiveError,
-        QueueStorageInvalidEventIgnored, QueueStorageMismatchingContainerName, BlobDoesntExist,
+        BlobDoesntExist, QueueMessageDeleteError, QueueMessageProcessingError,
+        QueueMessageReceiveError, QueueStorageInvalidEventIgnored,
+        QueueStorageMismatchingContainerName,
     },
     shutdown::ShutdownSignal,
     sources::azure_blob::{AzureBlobConfig, BlobPack, BlobPackStream},
 };
+
 
 /// Azure Queue configuration options.
 #[serde_as]
@@ -140,7 +142,7 @@ pub fn make_container_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<Contain
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AzureStorageEvent {
+pub(super) struct AzureStorageEvent {
     pub subject: String,
     pub event_type: String,
 }
@@ -229,7 +231,7 @@ async fn proccess_event_grid_message(
                     Err(e) => {
                         if let Some(http_error) = e.as_http_error() {
                             if http_error.status() == azure_core::StatusCode::NotFound {
-                                emit!(BlobDoesntExist{
+                                emit!(BlobDoesntExist {
                                     nonexistent_blob_name: blob_client.blob_name(),
                                 });
                                 remove_message_from_queue(queue_client, message).await;
@@ -268,15 +270,13 @@ async fn proccess_event_grid_message(
                 }),
             }))
         }
-        None => {
-            return Err(ProcessingError::FailedToParseSubject {
-                subject: body.subject,
-            });
-        }
+        None => Err(ProcessingError::FailedToParseSubject {
+            subject: body.subject,
+        }),
     }
 }
 
-fn parse_subject(subject: String) -> Option<(String, String)> {
+pub(super) fn parse_subject(subject: String) -> Option<(String, String)> {
     let parts: Vec<&str> = subject.split('/').collect();
     if parts.len() < 7 {
         warn!("Ignoring event because of wrong subject format");
@@ -287,20 +287,22 @@ fn parse_subject(subject: String) -> Option<(String, String)> {
     Some((container.to_string(), blob))
 }
 
-const fn default_poll_secs() -> u32 {
+pub(super) const fn default_poll_secs() -> u32 {
     15
 }
 
 // Number of messages to consume from the queue at once. This is the maximum
 // value allowed by the Azure API.
-const fn num_messages() -> u8 {
+pub(super) const fn num_messages() -> u8 {
     32
 }
 
 async fn remove_message_from_queue(queue_client: &QueueClient, message: Message) {
-    _ = queue_client.pop_receipt_client(message).delete().await.inspect_err(move |e| {
-        emit!(QueueMessageDeleteError { error: &e })
-    })
+    _ = queue_client
+        .pop_receipt_client(message)
+        .delete()
+        .await
+        .inspect_err(move |e| emit!(QueueMessageDeleteError { error: &e }))
 }
 
 #[test]
