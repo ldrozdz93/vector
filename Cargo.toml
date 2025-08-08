@@ -403,7 +403,7 @@ url = { version = "2.5.4", default-features = false, features = ["serde"] }
 warp = { version = "0.3.7", default-features = false }
 zstd = { version = "0.13.0", default-features = false }
 arr_macro = { version = "0.2.1" }
-anyhow = "1.0.82"
+anyhow = "1.0.98"
 
 # depending on fork for bumped nix dependency
 # https://github.com/heim-rs/heim/pull/360
