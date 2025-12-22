@@ -152,6 +152,9 @@ mod file;
 #[cfg(windows)]
 mod windows;
 
+// #[cfg(any(feature = "sources-azure_blob", feature = "sources-azure_blob",))]
+mod azure_queue;
+
 #[cfg(any(feature = "transforms-log_to_metric", feature = "sinks-loki"))]
 mod expansion;
 #[cfg(feature = "sources-mongodb_metrics")]
@@ -182,6 +185,8 @@ pub(crate) use self::aws_kinesis::*;
 pub(crate) use self::aws_kinesis_firehose::*;
 #[cfg(any(feature = "sources-aws_s3", feature = "sources-aws_sqs",))]
 pub(crate) use self::aws_sqs::*;
+// #[cfg(feature = "sources-azure_blob")]
+pub(crate) use self::azure_queue::*;
 pub(crate) use self::codecs::*;
 #[cfg(feature = "sources-datadog_agent")]
 pub(crate) use self::datadog_agent::*;
