@@ -9,7 +9,7 @@ mod azure_blob {
     use crate::event::Event;
     use crate::sources::azure_blob::queue::ProcessingError;
 
-    #[derive(Debug)]
+    #[derive(Debug, NamedInternalEvent)]
     pub struct QueueMessageProcessingError<'a> {
         pub message_id: &'a str,
         pub error: &'a ProcessingError,
@@ -36,7 +36,7 @@ mod azure_blob {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, NamedInternalEvent)]
     pub struct InvalidRowEventType<'a> {
         pub event: &'a Event,
     }
@@ -61,7 +61,7 @@ mod azure_blob {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueMessageReceiveError<'a, E> {
     pub error: &'a E,
 }
@@ -85,7 +85,7 @@ impl<'a, E: std::fmt::Display + std::fmt::Debug> InternalEvent for QueueMessageR
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueMessageDeleteError<'a, E> {
     pub error: &'a E,
 }
@@ -109,7 +109,7 @@ impl<'a, E: std::fmt::Display> InternalEvent for QueueMessageDeleteError<'a, E> 
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueStorageInvalidEventIgnored<'a> {
     pub container: &'a str,
     pub subject: &'a str,
@@ -132,7 +132,7 @@ impl<'a> InternalEvent for QueueStorageInvalidEventIgnored<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueStorageMismatchingContainerName<'a> {
     pub container: &'a str,
     pub configured_container: &'a str,
@@ -153,7 +153,7 @@ impl<'a> InternalEvent for QueueStorageMismatchingContainerName<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueMessageProcessingSucceeded {}
 
 impl InternalEvent for QueueMessageProcessingSucceeded {
@@ -163,7 +163,7 @@ impl InternalEvent for QueueMessageProcessingSucceeded {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueMessageProcessingErrored {}
 
 impl InternalEvent for QueueMessageProcessingErrored {
@@ -173,7 +173,7 @@ impl InternalEvent for QueueMessageProcessingErrored {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct QueueMessageProcessingRejected {}
 
 impl InternalEvent for QueueMessageProcessingRejected {
@@ -183,7 +183,7 @@ impl InternalEvent for QueueMessageProcessingRejected {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct BlobDoesntExist<'a> {
     pub nonexistent_blob_name: &'a str,
 }
