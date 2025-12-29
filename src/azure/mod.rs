@@ -75,17 +75,7 @@ pub fn build_container_client(
         }
         (None, Some(storage_account_p)) => {
             let creds: Arc<dyn TokenCredential> = match client_credentials {
-                Some(client_credentials_p) => {
-                    let http_client: Arc<dyn HttpClient> = new_http_client();
-                    let options = TokenCredentialOptions::default();
-                    std::sync::Arc::new(ClientSecretCredential::new(
-                        Arc::<dyn azure_core::HttpClient>::clone(&http_client),
-                        client_credentials_p.tenant_id,
-                        client_credentials_p.client_id,
-                        client_credentials_p.client_secret,
-                        options,
-                    )) as _
-                }
+                Some(client_credentials_p) => token_credential_from_client_credentials(client_credentials_p),
                 None => std::sync::Arc::new(DefaultAzureCredential::default()) as _,
             };
             let auto_creds = std::sync::Arc::new(AutoRefreshingTokenCredential::new(creds));
@@ -115,6 +105,20 @@ pub fn build_container_client(
         }
     }
     Ok(std::sync::Arc::new(client))
+}
+
+fn token_credential_from_client_credentials(
+    client_credentials: ClientCredentials,
+) -> Arc<dyn TokenCredential> {
+    let http_client: Arc<dyn HttpClient> = new_http_client();
+    let options = TokenCredentialOptions::default();
+    std::sync::Arc::new(ClientSecretCredential::new(
+        Arc::<dyn azure_core::HttpClient>::clone(&http_client),
+        client_credentials.tenant_id,
+        client_credentials.client_id,
+        client_credentials.client_secret,
+        options,
+    )) as _
 }
 
 /// Builds Azure Queue Service Client.
@@ -157,17 +161,7 @@ pub fn build_queue_client(
         }
         (None, Some(storage_account_p)) => {
             let creds: Arc<dyn TokenCredential> = match client_credentials {
-                Some(client_credentials_p) => {
-                    let http_client: Arc<dyn HttpClient> = new_http_client();
-                    let options = TokenCredentialOptions::default();
-                    std::sync::Arc::new(ClientSecretCredential::new(
-                        Arc::<dyn azure_core::HttpClient>::clone(&http_client),
-                        client_credentials_p.tenant_id,
-                        client_credentials_p.client_id,
-                        client_credentials_p.client_secret,
-                        options,
-                    )) as _
-                }
+                Some(client_credentials_p) => token_credential_from_client_credentials(client_credentials_p),
                 None => std::sync::Arc::new(DefaultAzureCredential::default()) as _,
             };
             let auto_creds = std::sync::Arc::new(AutoRefreshingTokenCredential::new(creds));
