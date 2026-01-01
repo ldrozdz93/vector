@@ -52,6 +52,20 @@ pub(super) struct Config {
     pub(super) poll_secs: u32,
 }
 
+/// Creates a stream of blob packs from the Azure Storage Queue.
+///
+/// This function polls the configured Azure Storage Queue for Event Grid notifications
+/// about blob creation/modification events, then streams the blob contents.
+///
+/// # Arguments
+/// * `cfg` - The Azure Blob source configuration
+/// * `shutdown` - Signal to gracefully shutdown the stream
+///
+/// # Returns
+/// A pinned boxed stream of `BlobPack` items
+///
+/// # Errors
+/// Returns an error if queue client creation fails or configuration is invalid
 pub fn make_azure_row_stream(
     cfg: &AzureBlobConfig,
     shutdown: ShutdownSignal,
@@ -109,6 +123,22 @@ pub fn make_azure_row_stream(
     }))
 }
 
+/// Creates an Azure Queue client from the source configuration.
+///
+/// This function initializes a queue client using the connection string from the configuration.
+/// The client is used to poll for Event Grid messages about blob events.
+///
+/// # Arguments
+/// * `cfg` - The Azure Blob source configuration containing connection string and queue name
+///
+/// # Returns
+/// An Arc-wrapped Azure QueueClient configured for the specified queue
+///
+/// # Errors
+/// Returns an error if:
+/// - The queue configuration is missing
+/// - The connection string is missing or invalid
+/// - The queue service client cannot be initialized
 pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient>> {
     let q = cfg.queue.clone().ok_or("Missing queue.")?;
     let connection_string_raw = cfg
@@ -150,6 +180,22 @@ pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient
     Ok(Arc::new(client))
 }
 
+/// Creates an Azure Blob Storage container client from the source configuration.
+///
+/// This function initializes a container client using the connection string and container name
+/// from the configuration. The client is used to read blob contents when blob events are received.
+///
+/// # Arguments
+/// * `cfg` - The Azure Blob source configuration containing connection string and container name
+///
+/// # Returns
+/// An Arc-wrapped Azure ContainerClient configured for the specified container
+///
+/// # Errors
+/// Returns an error if:
+/// - The connection string is missing
+/// - The container client cannot be initialized
+/// - Azure authentication fails
 pub fn make_container_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<ContainerClient>> {
     // Use the azure_common approach like the sink does
     let connection_string = cfg
@@ -295,6 +341,25 @@ async fn proccess_event_grid_message(
     }
 }
 
+/// Parses the subject field from an Azure Event Grid notification.
+///
+/// The subject field contains the blob path in the format:
+/// `/blobServices/default/containers/{container}/blobs/{blob-path}`
+///
+/// This function extracts the container name and blob path from the subject string.
+///
+/// # Arguments
+/// * `subject` - The subject string from an Azure Event Grid blob event
+///
+/// # Returns
+/// A tuple containing (container_name, blob_path) if parsing succeeds, None otherwise
+///
+/// # Examples
+/// ```
+/// let subject = "/blobServices/default/containers/logs/blobs/2024/01/file.txt";
+/// let result = parse_subject(subject.to_string());
+/// assert_eq!(result, Some(("logs".to_string(), "2024/01/file.txt".to_string())));
+/// ```
 pub(super) fn parse_subject(subject: String) -> Option<(String, String)> {
     let parts: Vec<&str> = subject.split('/').collect();
     if parts.len() < 7 {
