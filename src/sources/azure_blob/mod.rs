@@ -1,10 +1,9 @@
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use async_stream::stream;
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
-use tokio::{select, time};
-use tokio_stream::wrappers::IntervalStream;
+use tokio::select;
 use vrl::path;
 
 use vector_lib::internal_event::Registered;
@@ -54,22 +53,6 @@ pub mod queue;
 #[cfg(test)]
 mod test;
 
-/// Strategies for consuming objects from Azure Storage.
-#[configurable_component]
-#[derive(Clone, Copy, Debug, Derivative)]
-#[serde(rename_all = "lowercase")]
-#[derivative(Default)]
-enum Strategy {
-    /// Consumes objects by processing events sent to an [Azure Storage Queue][azure_storage_queue].
-    ///
-    /// [azure_storage_queue]: https://learn.microsoft.com/en-us/azure/storage/queues/storage-queues-introduction
-    StorageQueue,
-
-    /// This is a test strategy used only of development and PoC. Should be removed
-    /// once development is done.
-    #[derivative(Default)]
-    Test,
-}
 
 /// Collects logs from Azure Blob Storage.
 ///
@@ -77,8 +60,8 @@ enum Strategy {
 /// When a blob is created or modified in the configured container, an event is sent to the queue,
 /// and this source processes those events to read and decode the blob contents.
 #[configurable_component(source("azure_blob", "Collect logs from Azure Blob Storage."))]
-#[derive(Clone, Debug, Derivative)]
-#[derivative(Default)]
+#[derive(Clone, Derivative)]
+#[derivative(Default, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct AzureBlobConfig {
     /// The namespace to use for logs. This overrides the global setting.
@@ -86,15 +69,11 @@ pub struct AzureBlobConfig {
     #[serde(default)]
     log_namespace: Option<bool>,
 
-    /// The interval, in seconds, between polls for new queue messages.
-    /// This is only used by the test strategy and will be removed in the future.
+    /// Factory function for creating blob pack streams. Used only for tests.
     #[configurable(metadata(docs::hidden))]
-    #[serde(default = "default_exec_interval_secs")]
-    exec_interval_secs: u64,
-
-    /// The strategy to use to consume objects from Azure Storage.
-    #[configurable(metadata(docs::hidden))]
-    strategy: Strategy,
+    #[serde(skip)]
+    #[derivative(Default(value = "None"), Debug = "ignore")]
+    pub blob_pack_stream_factory: Option<Arc<dyn Fn(ShutdownSignal) -> crate::Result<BlobPackStream> + Send + Sync>>,
 
     /// Configuration options for Storage Queue.
     queue: Option<queue::Config>,
@@ -160,30 +139,21 @@ impl_generate_config_from_default!(AzureBlobConfig);
 impl AzureBlobConfig {
     /// Self validation
     pub fn validate(&self) -> crate::Result<()> {
-        match self.strategy {
-            Strategy::StorageQueue => {
-                if self.queue.is_none() || self.queue.as_ref().unwrap().queue_name.is_empty() {
-                    return Err("Azure event grid queue must be set.".into());
-                }
-                if self.storage_account.clone().unwrap_or_default().is_empty()
-                    && self
-                        .connection_string
-                        .clone()
-                        .unwrap_or_default()
-                        .inner()
-                        .is_empty()
-                {
-                    return Err("Azure Storage Account or Connection String must be set.".into());
-                }
-                if self.container_name.is_empty() {
-                    return Err("Azure Container must be set.".into());
-                }
-            }
-            Strategy::Test => {
-                if self.exec_interval_secs == 0 {
-                    return Err("exec_interval_secs must be greater than 0".into());
-                }
-            }
+        if self.queue.is_none() || self.queue.as_ref().unwrap().queue_name.is_empty() {
+            return Err("Azure event grid queue must be set.".into());
+        }
+        if self.storage_account.clone().unwrap_or_default().is_empty()
+            && self
+                .connection_string
+                .clone()
+                .unwrap_or_default()
+                .inner()
+                .is_empty()
+        {
+            return Err("Azure Storage Account or Connection String must be set.".into());
+        }
+        if self.container_name.is_empty() {
+            return Err("Azure Container must be set.".into());
         }
 
         Ok(())
@@ -344,33 +314,9 @@ impl SourceConfig for AzureBlobConfig {
             self.decoding.clone(),
         )?;
 
-        let blob_pack_stream: BlobPackStream = match self.strategy {
-            Strategy::Test => {
-                let exec_interval_secs = self.exec_interval_secs;
-                let shutdown = cx.shutdown.clone();
-                stream! {
-                    let schedule = Duration::from_secs(exec_interval_secs);
-                    let mut counter = 0;
-                    let mut interval = IntervalStream::new(time::interval(schedule)).take_until(shutdown);
-                    while interval.next().await.is_some() {
-                        counter += 1;
-                        let counter_copy = counter;
-                        yield BlobPack {
-                            row_stream: stream! {
-                                for i in 0..=counter {
-                                    yield format!("{counter}:{i}").into_bytes();
-                                }
-                            }.boxed(),
-                            success_handler: Box::new(move || {
-                                Box::pin(async move {
-                                    debug!("Successfully processed blob pack for counter {}.", counter_copy);
-                                })
-                            }),
-                        }
-                    }
-                }.boxed()
-            }
-            Strategy::StorageQueue => make_azure_row_stream(self, cx.shutdown.clone())?,
+        let blob_pack_stream: BlobPackStream = match self.blob_pack_stream_factory {
+            Some(ref factory) => factory(cx.shutdown.clone())?,
+            None => make_azure_row_stream(self, cx.shutdown.clone())?
         };
         Ok(Box::pin(
             azure_blob_streamer.run_streaming(blob_pack_stream),
@@ -393,8 +339,4 @@ impl SourceConfig for AzureBlobConfig {
     fn can_acknowledge(&self) -> bool {
         true
     }
-}
-
-const fn default_exec_interval_secs() -> u64 {
-    1
 }

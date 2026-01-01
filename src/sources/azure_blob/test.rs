@@ -3,7 +3,8 @@ use crate::{
     config::LogNamespace, event::EventStatus, serde::default_decoding, shutdown::ShutdownSignal,
     test_util::collect_n, SourceSender,
 };
-use tokio::{select, sync::oneshot};
+use tokio::{select, sync::oneshot, time};
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_messages_delivered() {
@@ -235,35 +236,23 @@ async fn test_json_decoding_blob_pack() {
 // Test config validation
 #[tokio::test]
 async fn test_config_validation() {
-    // Test invalid config - missing queue for StorageQueue strategy
+    // Test invalid config - missing queue
     let invalid_config1 = AzureBlobConfig {
         connection_string: Some("connection".to_string().into()),
-        storage_account: None,
         container_name: "container".to_string(),
-        strategy: Strategy::StorageQueue,
-        queue: None,
-        endpoint: None,
-        client_credentials: None,
-        exec_interval_secs: 1,
-        log_namespace: None,
-        acknowledgements: Default::default(),
-        decoding: default_decoding(),
+        ..Default::default()
     };
     assert!(invalid_config1.validate().is_err());
 
-    // Test invalid config - Test strategy with zero exec_interval_secs
+    // Test invalid config - missing container name
     let invalid_config2 = AzureBlobConfig {
-        connection_string: None,
-        storage_account: None,
-        container_name: "container".to_string(),
-        strategy: Strategy::Test,
-        queue: None,
-        endpoint: None,
-        client_credentials: None,
-        exec_interval_secs: 0,
-        log_namespace: None,
-        acknowledgements: Default::default(),
-        decoding: default_decoding(),
+        connection_string: Some("connection".to_string().into()),
+        container_name: "".to_string(),
+        queue: Some(super::queue::Config {
+            queue_name: "test-queue".to_string(),
+            poll_secs: super::queue::default_poll_secs(),
+        }),
+        ..Default::default()
     };
     assert!(invalid_config2.validate().is_err());
 }

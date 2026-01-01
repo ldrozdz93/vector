@@ -1,10 +1,11 @@
 use azure_storage_blobs::prelude::PublicAccess;
 use base64::{prelude::BASE64_STANDARD, Engine};
 
+use std::time::Duration;
+
 use super::{
     queue::{make_container_client, make_queue_client, Config},
-    time::Duration,
-    AzureBlobConfig, Strategy,
+    AzureBlobConfig,
 };
 use crate::{
     event::Event,
@@ -20,19 +21,13 @@ impl AzureBlobConfig {
         let address = std::env::var("AZURE_ADDRESS").unwrap_or_else(|_| "localhost".to_string());
         let config = AzureBlobConfig {
                 connection_string: Some(format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{}:10000/devstoreaccount1;QueueEndpoint=http://{}:10001/devstoreaccount1;TableEndpoint=http://{}:10002/devstoreaccount1;", address, address, address).into()),
-                storage_account: None,
                 container_name: "logs".to_string(),
-                strategy: Strategy::StorageQueue,
                 queue: Some(Config {
                     queue_name: format!("test-{}", rand::random::<u32>()),
                     poll_secs: 1,
                 }),
-                endpoint: None,
-                acknowledgements: Default::default(),
-                exec_interval_secs: 0,
-                log_namespace: None,
                 decoding: default_decoding(),
-                client_credentials: None,
+                ..Default::default()
             };
 
         config.ensure_container().await;

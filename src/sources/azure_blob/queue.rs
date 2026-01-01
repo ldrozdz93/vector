@@ -592,23 +592,22 @@ fn test_config_deny_unknown_fields() {
 // Test queue client creation with invalid config
 #[test]
 fn test_make_queue_client_no_auth() {
-    use crate::sources::azure_blob::{AzureBlobConfig, Strategy};
+    use crate::sources::azure_blob::AzureBlobConfig;
 
     let config = AzureBlobConfig {
         connection_string: None,
         storage_account: None,
         container_name: "test".to_string(),
-        strategy: Strategy::StorageQueue,
         queue: Some(Config {
             queue_name: "queue".to_string(),
             poll_secs: 10,
         }),
         endpoint: None,
         client_credentials: None,
-        exec_interval_secs: 1,
         log_namespace: None,
         acknowledgements: Default::default(),
         decoding: crate::serde::default_decoding(),
+        blob_pack_stream_factory: None,
     };
 
     let result = make_queue_client(&config);
@@ -618,20 +617,22 @@ fn test_make_queue_client_no_auth() {
 // Test container client creation with connection string
 #[test]
 fn test_make_container_client_with_connection_string() {
-    use crate::sources::azure_blob::{AzureBlobConfig, Strategy};
+    use crate::sources::azure_blob::AzureBlobConfig;
 
     let config = AzureBlobConfig {
         connection_string: Some("DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net".to_string().into()),
         storage_account: None,
         container_name: "test-container".to_string(),
-        strategy: Strategy::Test,
-        queue: None,
+        queue: Some(Config {
+            queue_name: "test-queue".to_string(),
+            poll_secs: default_poll_secs(),
+        }),
         endpoint: None,
         client_credentials: None,
-        exec_interval_secs: 1,
         log_namespace: None,
         acknowledgements: Default::default(),
         decoding: crate::serde::default_decoding(),
+        blob_pack_stream_factory: None,
     };
 
     let result = make_container_client(&config);
