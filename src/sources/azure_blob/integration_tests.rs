@@ -1,18 +1,18 @@
 use azure_storage_blobs::prelude::PublicAccess;
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 
 use std::time::Duration;
 
 use super::{
-    queue::{make_container_client, make_queue_client, Config},
     AzureBlobConfig,
+    queue::{Config, make_container_client, make_queue_client},
 };
 use crate::{
     event::Event,
     serde::default_decoding,
     test_util::components::{
-        run_and_assert_source_compliance, run_and_assert_source_error, COMPONENT_ERROR_TAGS,
-        SOURCE_TAGS,
+        COMPONENT_ERROR_TAGS, SOURCE_TAGS, run_and_assert_source_compliance,
+        run_and_assert_source_error,
     },
 };
 
@@ -57,7 +57,10 @@ impl AzureBlobConfig {
             Err(reason) => {
                 let error_msg = reason.to_string();
                 // Check for HTTP 409 (Conflict) which means container already exists - this is OK
-                if error_msg.contains("409") || error_msg.contains("conflict") || error_msg.contains("already exists") {
+                if error_msg.contains("409")
+                    || error_msg.contains("conflict")
+                    || error_msg.contains("already exists")
+                {
                     Ok(())
                 } else {
                     Err(format!("Unexpected error {}", reason))
@@ -77,7 +80,10 @@ impl AzureBlobConfig {
             Err(reason) => {
                 let error_msg = reason.to_string();
                 // Check for HTTP 409 (Conflict) which means queue already exists - this is OK
-                if error_msg.contains("409") || error_msg.contains("conflict") || error_msg.contains("already exists") {
+                if error_msg.contains("409")
+                    || error_msg.contains("conflict")
+                    || error_msg.contains("already exists")
+                {
                     Ok(())
                 } else {
                     Err(format!("Unexpected error {}", reason))

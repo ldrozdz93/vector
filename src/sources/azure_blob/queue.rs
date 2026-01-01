@@ -4,14 +4,14 @@ use std::{
     sync::Arc,
 };
 
+use crate::sinks::azure_common;
 use anyhow::anyhow;
 use async_stream::stream;
-use crate::sinks::azure_common;
 use azure_core::{self};
 use azure_storage;
 use azure_storage_blobs::prelude::ContainerClient;
-use azure_storage_queues::{operations::Message, QueueClient};
-use base64::{prelude::BASE64_STANDARD, Engine};
+use azure_storage_queues::{QueueClient, operations::Message};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use futures::stream::StreamExt;
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -111,13 +111,16 @@ pub fn make_azure_row_stream(
 
 pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient>> {
     let q = cfg.queue.clone().ok_or("Missing queue.")?;
-    let connection_string_raw = cfg.connection_string.clone().ok_or("Missing connection string")?;
+    let connection_string_raw = cfg
+        .connection_string
+        .clone()
+        .ok_or("Missing connection string")?;
 
     // Use the same pattern as build_client in azure_common
-    use azure_storage::ConnectionString;
-    use azure_storage_queues::QueueServiceClientBuilder;
     use azure_core_for_storage::RetryOptions;
     use azure_storage::CloudLocation;
+    use azure_storage::ConnectionString;
+    use azure_storage_queues::QueueServiceClientBuilder;
 
     let service_client = {
         let connection_string = ConnectionString::new(connection_string_raw.inner())?;
@@ -133,7 +136,10 @@ pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient
                 },
                 connection_string.storage_credentials()?,
             ),
-            None => QueueServiceClientBuilder::new(account_name, connection_string.storage_credentials()?),
+            None => QueueServiceClientBuilder::new(
+                account_name,
+                connection_string.storage_credentials()?,
+            ),
         }
         .retry(RetryOptions::none())
         .build()
@@ -146,12 +152,12 @@ pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient
 
 pub fn make_container_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<ContainerClient>> {
     // Use the azure_common approach like the sink does
-    let connection_string = cfg.connection_string.clone().ok_or("Missing connection string")?;
-    azure_common::config::build_client(
-        connection_string.into(),
-        cfg.container_name.clone(),
-    )
-    .map_err(|e| format!("Failed to create Azure container client: {}", e).into())
+    let connection_string = cfg
+        .connection_string
+        .clone()
+        .ok_or("Missing connection string")?;
+    azure_common::config::build_client(connection_string.into(), cfg.container_name.clone())
+        .map_err(|e| format!("Failed to create Azure container client: {}", e).into())
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -220,8 +226,7 @@ async fn proccess_event_grid_message(
             }
             trace!(
                 "Detected new blob creation in container '{}': '{}'",
-                &container,
-                &blob
+                &container, &blob
             );
             let blob_client = container_client.blob_client(blob);
             let mut result: Vec<u8> = vec![];
@@ -251,7 +256,7 @@ async fn proccess_event_grid_message(
                             }
                         }
                         return Err(ProcessingError::FailedToGetBlob {
-                            error: azure_core::Error::new(azure_core::error::ErrorKind::Other, e)
+                            error: azure_core::Error::new(azure_core::error::ErrorKind::Other, e),
                         });
                     }
                 }

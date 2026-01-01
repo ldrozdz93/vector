@@ -2,15 +2,15 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use async_stream::stream;
 use bytes::Bytes;
-use futures::{stream::StreamExt, Stream};
+use futures::{Stream, stream::StreamExt};
 use tokio::select;
 use vrl::path;
 
 use vector_lib::internal_event::Registered;
 use vector_lib::{
     codecs::{
-        decoding::{DeserializerConfig, FramingConfig, NewlineDelimitedDecoderOptions},
         NewlineDelimitedDecoderConfig,
+        decoding::{DeserializerConfig, FramingConfig, NewlineDelimitedDecoderOptions},
     },
     config::LegacyKey,
     configurable::configurable_component,
@@ -32,6 +32,7 @@ pub struct ClientCredentials {
 }
 
 use crate::{
+    SourceSender,
     codecs::{Decoder, DecodingConfig},
     config::{
         LogNamespace, SourceAcknowledgementsConfig, SourceConfig, SourceContext, SourceOutput,
@@ -44,7 +45,6 @@ use crate::{
     serde::{bool_or_struct, default_decoding},
     shutdown::ShutdownSignal,
     sources::azure_blob::queue::make_azure_row_stream,
-    SourceSender,
 };
 
 #[cfg(all(test, feature = "azure-blob-source-integration-tests"))]
@@ -52,7 +52,6 @@ mod integration_tests;
 pub mod queue;
 #[cfg(test)]
 mod test;
-
 
 /// Collects logs from Azure Blob Storage.
 ///
@@ -73,7 +72,8 @@ pub struct AzureBlobConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(skip)]
     #[derivative(Default(value = "None"), Debug = "ignore")]
-    pub blob_pack_stream_factory: Option<Arc<dyn Fn(ShutdownSignal) -> crate::Result<BlobPackStream> + Send + Sync>>,
+    pub blob_pack_stream_factory:
+        Option<Arc<dyn Fn(ShutdownSignal) -> crate::Result<BlobPackStream> + Send + Sync>>,
 
     /// Configuration options for Storage Queue.
     queue: Option<queue::Config>,
@@ -316,7 +316,7 @@ impl SourceConfig for AzureBlobConfig {
 
         let blob_pack_stream: BlobPackStream = match self.blob_pack_stream_factory {
             Some(ref factory) => factory(cx.shutdown.clone())?,
-            None => make_azure_row_stream(self, cx.shutdown.clone())?
+            None => make_azure_row_stream(self, cx.shutdown.clone())?,
         };
         Ok(Box::pin(
             azure_blob_streamer.run_streaming(blob_pack_stream),

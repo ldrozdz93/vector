@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
-    config::LogNamespace, event::EventStatus, serde::default_decoding, shutdown::ShutdownSignal,
-    test_util::collect_n, SourceSender,
+    SourceSender, config::LogNamespace, event::EventStatus, serde::default_decoding,
+    shutdown::ShutdownSignal, test_util::collect_n,
 };
-use tokio::{select, sync::oneshot, time};
 use std::time::Duration;
+use tokio::{select, sync::oneshot, time};
 
 #[tokio::test]
 async fn test_messages_delivered() {
