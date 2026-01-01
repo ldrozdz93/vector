@@ -1,5 +1,6 @@
 features:
 - azure-integration-tests
+- azure-blob-source-integration-tests
 
 test_filter: ::azure_
 
@@ -14,6 +15,8 @@ matrix:
 # changes to these files/paths will invoke the integration test in CI
 # expressions are evaluated using https://github.com/micromatch/picomatch
 paths:
+- "src/sources/azure_blob/**"
 - "src/sinks/azure_**"
 - "src/sinks/util/**"
+- "src/internal_events/azure_queue.rs"
 - "tests/integration/azure/**"
