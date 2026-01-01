@@ -24,11 +24,11 @@ use vector_lib::{
 #[serde(deny_unknown_fields)]
 pub struct ClientCredentials {
     /// Tenant ID for Azure authentication.
-    tenant_id: String,
+    pub tenant_id: String,
     /// Client ID for Azure authentication.
-    client_id: String,
+    pub client_id: String,
     /// Client secret for Azure authentication.
-    client_secret: String,
+    pub client_secret: String,
 }
 
 use crate::{
