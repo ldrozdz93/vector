@@ -292,14 +292,14 @@ async fn proccess_event_grid_message(
                         }
                     }
                     Err(e) => {
-                        if let Some(http_error) = e.as_http_error() {
-                            if http_error.status() == 404u16 {
-                                emit!(BlobDoesntExist {
-                                    nonexistent_blob_name: blob_client.blob_name(),
-                                });
-                                remove_message_from_queue(queue_client, message).await;
-                                return Ok(None);
-                            }
+                        if let Some(http_error) = e.as_http_error()
+                            && http_error.status() == 404u16
+                        {
+                            emit!(BlobDoesntExist {
+                                nonexistent_blob_name: blob_client.blob_name(),
+                            });
+                            remove_message_from_queue(queue_client, message).await;
+                            return Ok(None);
                         }
                         return Err(ProcessingError::FailedToGetBlob {
                             error: azure_core::Error::new(azure_core::error::ErrorKind::Other, e),
