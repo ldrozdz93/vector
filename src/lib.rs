@@ -78,6 +78,8 @@ pub mod app;
 pub mod async_read;
 #[cfg(feature = "aws-config")]
 pub mod aws;
+#[cfg(feature = "azure")]
+pub mod azure;
 pub mod common;
 pub mod completion;
 mod convert_config;

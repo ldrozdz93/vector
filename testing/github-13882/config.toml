@@ -1,0 +1,73 @@
+data_dir = "testing/data"
+
+# Source 1: Plain text logs
+[sources.azure_logs_plain]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-plain"
+
+[sources.azure_logs_plain.queue]
+queue_name = "queue-plain"
+poll_secs = 5
+
+[sources.azure_logs_plain.framing]
+method = "newline_delimited"
+
+[sources.azure_logs_plain.decoding]
+codec = "bytes"
+
+[sources.azure_logs_plain.acknowledgements]
+enabled = true
+
+# Source 2: JSON logs
+[sources.azure_logs_json]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-json"
+
+[sources.azure_logs_json.queue]
+queue_name = "queue-json"
+poll_secs = 5
+
+[sources.azure_logs_json.framing]
+method = "newline_delimited"
+
+[sources.azure_logs_json.decoding]
+codec = "json"
+
+[sources.azure_logs_json.acknowledgements]
+enabled = true
+
+# Source 3: Multiline logs
+[sources.azure_logs_multiline]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-multiline"
+
+[sources.azure_logs_multiline.queue]
+queue_name = "queue-multiline"
+poll_secs = 5
+
+[sources.azure_logs_multiline.multiline]
+start_pattern = '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+condition_pattern = '^[[:space:]]'
+mode = "continue_through"
+timeout_ms = 1000
+
+[sources.azure_logs_multiline.framing]
+method = "newline_delimited"
+
+[sources.azure_logs_multiline.decoding]
+codec = "bytes"
+
+[sources.azure_logs_multiline.acknowledgements]
+enabled = true
+
+# Sink: Console output
+[sinks.console_output]
+type = "console"
+inputs = ["azure_logs_plain", "azure_logs_json", "azure_logs_multiline"]
+target = "stdout"
+
+[sinks.console_output.encoding]
+codec = "json"
