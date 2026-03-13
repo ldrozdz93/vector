@@ -133,23 +133,9 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
    - Total: 3 events (not 6).
 
 6. Graceful shutdown:
-   - Start Vector, upload a test blob, then send SIGTERM:
      ```bash
-     # Start Vector
-     cargo run --features sources-azure_blob -- --config testing/github-13882/config.toml &
-     VECTOR_PID=$!
-
-     # Upload a small test blob
-     echo -e "Line 1\nLine 2\nLine 3" | \
-     az storage blob upload \
-       --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
-       --container-name logs-plain \
-       --name "shutdown-test.log" \
-       --data @-
-
-     # Wait a moment, then stop Vector
      sleep 5
-     kill -SIGTERM $VECTOR_PID
+     pkill -SIGTERM vector
      ```
    - Vector receives SIGTERM and begins graceful shutdown.
    - No panics or errors during shutdown.
