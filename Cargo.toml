@@ -316,7 +316,7 @@ azure_storage_blobs = { version = "0.21", default-features = false, optional = t
 azure_storage_queues = { version = "0.21", default-features = false, optional = true }
 
 # Needed to bridge with outdated version of azure_core used in azure_storage*
-azure_core_for_storage = { package = "azure_core", version = "0.21.0", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
+azure_core_for_storage = { package = "azure_core", version = "0.21.0", default-features = false, features = ["enable_reqwest", "hmac_openssl"], optional = true }
 
 # OpenDAL
 opendal = { version = "0.54", default-features = false, features = ["services-webhdfs"], optional = true }
@@ -635,7 +635,7 @@ api-client-minimal = [
 
 top = ["vector-lib/vector-top", "vector-lib/api-client"]
 
-azure = ["dep:azure_storage", "dep:azure_storage_blobs"]
+azure = ["dep:azure_storage", "dep:azure_storage_blobs", "dep:azure_core_for_storage"]
 
 aws-core = [
   "aws-runtime",

@@ -69,6 +69,20 @@ components: sources: azure_blob: {
 						examples: ["azure_blob"]
 					}
 				}
+				container: {
+					description: "The Azure Blob Storage container the blob came from."
+					required:    true
+					type: string: {
+						examples: ["logs"]
+					}
+				}
+				blob: {
+					description: "The name of the blob the line came from."
+					required:    true
+					type: string: {
+						examples: ["2024/01/15/app.log"]
+					}
+				}
 				ingest_timestamp: {
 					description: "The timestamp of when the blob was ingested by Vector."
 					required:    true
@@ -164,7 +178,6 @@ components: sources: azure_blob: {
 				The source automatically handles:
 				- Blob downloads with streaming to handle large files efficiently
 				- 404 errors for blobs that no longer exist
-				- Queue message visibility timeouts and retries
 				- Graceful shutdown without losing events
 				"""
 		}

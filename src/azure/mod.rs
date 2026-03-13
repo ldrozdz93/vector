@@ -20,11 +20,10 @@ pub fn build_client(
             .ok_or("Account name missing in connection string")?;
 
         match connection_string.blob_endpoint {
-            // When the blob_endpoint is provided, we use the Custom CloudLocation since it is
-            // required to contain the full URI to the blob storage API endpoint, this means
-            // that account_name is not required to exist in the connection_string since
-            // account_name is only used with the default CloudLocation in the Azure SDK to
-            // generate the storage API endpoint
+            // When the blob_endpoint is provided, we use the Custom CloudLocation
+            // which takes the full URI directly instead of deriving it from the
+            // account_name. The account_name is still required for authentication
+            // and request signing.
             Some(uri) => ClientBuilder::with_location(
                 CloudLocation::Custom {
                     uri: uri.to_string(),
