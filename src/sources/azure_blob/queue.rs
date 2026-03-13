@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, sync::Mutex};
 
 use async_compression::tokio::bufread::{GzipDecoder, ZstdDecoder};
 use async_stream::stream;
@@ -25,7 +25,8 @@ use crate::{
     line_agg::{self, LineAgg},
     shutdown::ShutdownSignal,
     sources::azure_blob::{
-        AzureBlobConfig, BlobWithAck, BlobWithAckStream, Compression, determine_compression,
+        AzureBlobConfig, BlobWithAck, BlobWithAckStream, Compression, StreamResult,
+        determine_compression,
     },
 };
 
@@ -368,15 +369,21 @@ async fn process_event_grid_message(
 
     // Use FramedRead with configurable framer
     let queue_client_copy = queue_client.clone();
+    let read_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let read_error_for_handler = Arc::clone(&read_error);
+    let blob_for_warn = blob.clone();
+    let container_for_warn = container.clone();
 
     Ok(Some(BlobWithAck {
         blob_data_stream: Box::pin({
             let blob_for_error = blob.clone();
+            let read_error_flag = Arc::clone(&read_error);
             let lines: Box<dyn futures::Stream<Item = Bytes> + Send + Unpin> = Box::new(
                 FramedRead::new(object_reader, framer)
                     .map(move |res| {
-                        res.inspect_err(|err| {
+                        res.map_err(|err| {
                             error!("Framing error for blob '{}': {}", blob_for_error, err);
+                            *read_error_flag.lock().unwrap() = Some(format!("{}", err));
                         })
                         .ok()
                     })
@@ -399,8 +406,18 @@ async fn process_event_grid_message(
 
             lines
         }),
-        success_handler: Box::new(|| {
+        completion_handler: Box::new(move |result: StreamResult| {
             Box::pin(async move {
+                if !matches!(result, StreamResult::Delivered) {
+                    return;
+                }
+                if let Some(err) = read_error_for_handler.lock().unwrap().take() {
+                    warn!(
+                        "Read error for blob '{}' in container '{}': {}. Queue message retained for retry.",
+                        blob_for_warn, container_for_warn, err
+                    );
+                    return;
+                }
                 remove_message_from_queue(&queue_client_copy, message).await;
             })
         }),

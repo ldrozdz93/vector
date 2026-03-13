@@ -204,9 +204,21 @@ fn blob_name_to_compression(blob_name: &str) -> Option<Compression> {
 
 type BlobDataStream = Pin<Box<dyn Stream<Item = Bytes> + Send>>;
 
+/// Outcome of blob stream consumption, passed to the completion handler.
+pub(super) enum StreamResult {
+    /// All events delivered successfully — safe to delete queue message.
+    Delivered,
+    /// Upstream reported an error — retain queue message for retry.
+    Errored,
+}
+
 pub struct BlobWithAck {
     pub(super) blob_data_stream: BlobDataStream,
-    pub(super) success_handler: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
+    /// Called after stream consumption to finalize queue message handling.
+    /// Encapsulates both the success action (delete queue message) and
+    /// read-error checking (retain queue message on framing errors).
+    pub(super) completion_handler:
+        Box<dyn FnOnce(StreamResult) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
     pub(super) container: String,
     pub(super) blob_name: String,
 }
@@ -355,22 +367,20 @@ impl AzureBlobStreamer {
         }
 
         match receiver {
-            None => (blob.success_handler)().await,
-            Some(receiver) => {
-                let result = receiver.await;
-                match result {
-                    BatchStatus::Delivered => {
-                        (blob.success_handler)().await;
-                        emit!(QueueMessageProcessingSucceeded {});
-                    }
-                    BatchStatus::Errored => {
-                        emit!(QueueMessageProcessingErrored {});
-                    }
-                    BatchStatus::Rejected => {
-                        emit!(QueueMessageProcessingRejected {});
-                    }
+            None => (blob.completion_handler)(StreamResult::Delivered).await,
+            Some(receiver) => match receiver.await {
+                BatchStatus::Delivered => {
+                    (blob.completion_handler)(StreamResult::Delivered).await;
+                    emit!(QueueMessageProcessingSucceeded {});
                 }
-            }
+                BatchStatus::Errored => {
+                    (blob.completion_handler)(StreamResult::Errored).await;
+                    emit!(QueueMessageProcessingErrored {});
+                }
+                BatchStatus::Rejected => {
+                    emit!(QueueMessageProcessingRejected {});
+                }
+            },
         }
 
         Ok(())
