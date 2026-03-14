@@ -147,6 +147,19 @@ pub struct AzureBlobConfig {
     #[serde(default = "default_decoding")]
     #[derivative(Default(value = "default_decoding()"))]
     pub decoding: DeserializerConfig,
+
+    /// Whether to delete non-retryable messages from the queue.
+    ///
+    /// If a message is rejected by the sink and not retryable, setting this to `true`
+    /// will delete the message from the queue. When `false`, rejected messages are
+    /// retained in the queue and will become visible again after the visibility timeout.
+    #[serde(default = "default_true")]
+    #[derivative(Default(value = "default_true()"))]
+    pub delete_failed_message: bool,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 impl_generate_config_from_default!(AzureBlobConfig);
@@ -210,6 +223,8 @@ pub(super) enum StreamResult {
     Delivered,
     /// Upstream reported an error — retain queue message for retry.
     Errored,
+    /// Permanently rejected — delete queue message to prevent infinite reprocessing.
+    Rejected,
 }
 
 pub struct BlobWithAck {
@@ -230,6 +245,7 @@ struct AzureBlobStreamer {
     out: SourceSender,
     log_namespace: LogNamespace,
     acknowledge: bool,
+    delete_failed_message: bool,
     decoder: Decoder,
     bytes_received: Registered<BytesReceived>,
     events_received: Registered<EventsReceived>,
@@ -241,6 +257,7 @@ impl AzureBlobStreamer {
         out: SourceSender,
         log_namespace: LogNamespace,
         acknowledge: bool,
+        delete_failed_message: bool,
         framing: FramingConfig,
         decoding: DeserializerConfig,
     ) -> crate::Result<Self> {
@@ -249,6 +266,7 @@ impl AzureBlobStreamer {
             out,
             log_namespace,
             acknowledge,
+            delete_failed_message,
             decoder: DecodingConfig::new(framing, decoding, log_namespace).build()?,
             bytes_received: register!(BytesReceived::from(Protocol::HTTP)),
             events_received: register!(EventsReceived),
@@ -378,6 +396,14 @@ impl AzureBlobStreamer {
                     emit!(QueueMessageProcessingErrored {});
                 }
                 BatchStatus::Rejected => {
+                    if self.delete_failed_message {
+                        warn!(
+                            message = "Blob events rejected by sink. Deleting queue message per config.",
+                            container = %container,
+                            blob = %blob_name,
+                        );
+                        (blob.completion_handler)(StreamResult::Rejected).await;
+                    }
                     emit!(QueueMessageProcessingRejected {});
                 }
             },
@@ -404,6 +430,7 @@ impl SourceConfig for AzureBlobConfig {
             cx.out.clone(),
             cx.log_namespace(self.log_namespace),
             cx.do_acknowledgements(self.acknowledgements),
+            self.delete_failed_message,
             self.framing.clone(),
             self.decoding.clone(),
         )?;

@@ -7,7 +7,7 @@ use azure_storage_blobs::prelude::ContainerClient;
 use azure_storage_queues::{QueueClient, operations::Message};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use bytes::Bytes;
-use futures::{future::ready, stream::StreamExt};
+use futures::{FutureExt, future::ready, stream::StreamExt};
 use serde::Deserialize;
 use serde_with::serde_as;
 use snafu::Snafu;
@@ -47,6 +47,28 @@ pub(super) struct Config {
     #[derivative(Default(value = "default_poll_secs()"))]
     #[configurable(metadata(docs::type_unit = "seconds"))]
     pub(super) poll_secs: u32,
+
+    /// Maximum number of messages to receive from the queue in a single request.
+    ///
+    /// Azure Storage Queues allow between 1 and 32 messages per request.
+    /// Since messages are processed sequentially, a lower value reduces the risk of
+    /// visibility timeouts expiring before messages are processed.
+    #[serde(default = "default_max_number_of_messages")]
+    #[derivative(Default(value = "default_max_number_of_messages()"))]
+    pub(super) max_number_of_messages: u8,
+
+    /// Visibility timeout for received queue messages, in seconds.
+    ///
+    /// After a message is received, it becomes invisible to other consumers for this duration.
+    /// If processing takes longer than this timeout, the message may be received again by another
+    /// consumer (or the same consumer), potentially causing duplicate processing.
+    ///
+    /// Set this value higher than the expected time to process a full batch of messages.
+    /// Valid range: 1 to 604800 (7 days).
+    #[serde(default = "default_visibility_timeout_secs")]
+    #[derivative(Default(value = "default_visibility_timeout_secs()"))]
+    #[configurable(metadata(docs::type_unit = "seconds"))]
+    pub(super) visibility_timeout_secs: u32,
 }
 
 /// Creates a stream of blobs with acknowledgements from the Azure Storage Queue.
@@ -83,10 +105,19 @@ pub fn make_blob_with_ack_stream(
             .poll_secs as u64,
     );
     let framer = framing.build();
+    let queue_config = cfg.queue.as_ref().unwrap();
+    let max_messages = queue_config.max_number_of_messages;
+    let visibility_timeout =
+        std::time::Duration::from_secs(queue_config.visibility_timeout_secs as u64);
 
     Ok(Box::pin(stream! {
         loop {
-            let messages = match queue_client.get_messages().number_of_messages(num_messages()).await {
+            let messages = match queue_client
+                .get_messages()
+                .number_of_messages(max_messages)
+                .visibility_timeout(visibility_timeout)
+                .await
+            {
                 Ok(messages) => messages,
                 Err(e) => {
                     emit!(QueueMessageReceiveError{error: &e});
@@ -113,6 +144,12 @@ pub fn make_blob_with_ack_stream(
                             });
                         }
                     }
+                }
+                // Check shutdown between message batches to avoid processing indefinitely
+                // when messages keep arriving.
+                if shutdown.clone().now_or_never().is_some() {
+                    info!("Shutdown signal received, stopping Azure Blob queue polling.");
+                    break;
                 }
             } else {
                 select! {
@@ -408,17 +445,24 @@ async fn process_event_grid_message(
         }),
         completion_handler: Box::new(move |result: StreamResult| {
             Box::pin(async move {
-                if !matches!(result, StreamResult::Delivered) {
-                    return;
+                match result {
+                    StreamResult::Delivered => {
+                        if let Some(err) = read_error_for_handler.lock().unwrap().take() {
+                            warn!(
+                                "Read error for blob '{}' in container '{}': {}. Queue message retained for retry.",
+                                blob_for_warn, container_for_warn, err
+                            );
+                            return;
+                        }
+                        remove_message_from_queue(&queue_client_copy, message).await;
+                    }
+                    StreamResult::Rejected => {
+                        remove_message_from_queue(&queue_client_copy, message).await;
+                    }
+                    StreamResult::Errored => {
+                        // Retain queue message for retry on transient errors.
+                    }
                 }
-                if let Some(err) = read_error_for_handler.lock().unwrap().take() {
-                    warn!(
-                        "Read error for blob '{}' in container '{}': {}. Queue message retained for retry.",
-                        blob_for_warn, container_for_warn, err
-                    );
-                    return;
-                }
-                remove_message_from_queue(&queue_client_copy, message).await;
             })
         }),
         container,
@@ -447,7 +491,11 @@ async fn process_event_grid_message(
 /// ```
 fn parse_subject(subject: String) -> Option<(String, String)> {
     let parts: Vec<&str> = subject.split('/').collect();
-    if parts.len() < 7 {
+    if parts.len() < 7
+        || parts[1] != "blobServices"
+        || parts[3] != "containers"
+        || parts[5] != "blobs"
+    {
         warn!(
             "Ignoring event: subject has invalid format (expected /blobServices/default/containers/{{container}}/blobs/{{blob}}), got: '{}'",
             subject
@@ -463,9 +511,12 @@ const fn default_poll_secs() -> u32 {
     15
 }
 
-// Maximum allowed by the Azure API.
-const fn num_messages() -> u8 {
-    32
+const fn default_max_number_of_messages() -> u8 {
+    10
+}
+
+const fn default_visibility_timeout_secs() -> u32 {
+    300
 }
 
 async fn remove_message_from_queue(queue_client: &QueueClient, message: Message) {
@@ -540,6 +591,14 @@ fn test_parse_subject() {
         ("", None),
         // Invalid: wrong format
         ("not/a/valid/subject", None),
+        // Invalid: wrong fixed segment "blobServices"
+        ("/wrongSegment/default/containers/content/blobs/foo", None),
+        // Invalid: wrong fixed segment "containers"
+        ("/blobServices/default/wrongSegment/content/blobs/foo", None),
+        // Invalid: wrong fixed segment "blobs"
+        ("/blobServices/default/containers/content/wrongSegment/foo", None),
+        // Invalid: enough segments but all wrong
+        ("/a/b/c/d/e/f/g", None),
     ];
 
     for (subject, expected) in cases {
@@ -574,6 +633,7 @@ fn test_make_queue_client_invalid_connection_string() {
         queue: Some(Config {
             queue_name: "queue".to_string(),
             poll_secs: 10,
+            ..Default::default()
         }),
         ..Default::default()
     };
@@ -592,6 +652,7 @@ fn test_make_container_client_with_connection_string() {
         queue: Some(Config {
             queue_name: "test-queue".to_string(),
             poll_secs: default_poll_secs(),
+            ..Default::default()
         }),
         ..Default::default()
     };

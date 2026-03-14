@@ -14,6 +14,7 @@ async fn test_messages_delivered() {
         tx,
         LogNamespace::Vector,
         true,
+        true,
         default_framing(),
         default_decoding(),
     );
@@ -56,13 +57,65 @@ async fn test_messages_delivered() {
 }
 
 #[tokio::test]
-async fn test_messages_rejected() {
+async fn test_messages_rejected_delete_failed_message() {
     let (tx, rx) = SourceSender::new_test_finalize(EventStatus::Rejected);
     let streamer = super::AzureBlobStreamer::new(
         ShutdownSignal::noop(),
         tx,
         LogNamespace::Vector,
         true,
+        true, // delete_failed_message
+        default_framing(),
+        default_decoding(),
+    );
+    let mut streamer = streamer.expect("Failed to create streamer");
+    let (success_sender, success_receiver) = oneshot::channel();
+    let blob = BlobWithAck {
+        blob_data_stream: Box::pin(stream! {
+            let lines = vec!["foo", "bar"];
+            for line in lines {
+                yield Bytes::from(line.as_bytes().to_vec());
+            }
+        }),
+        completion_handler: Box::new(move |_result: StreamResult| {
+            Box::pin(async move {
+                success_sender.send(()).unwrap();
+            })
+        }),
+        container: "test-container".to_string(),
+        blob_name: "test-blob.log".to_string(),
+    };
+    let (events_collector, events_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        events_collector.send(collect_n(rx, 2).await).unwrap();
+    });
+    streamer
+        .process_blob(blob)
+        .await
+        .expect("Failed processing blob");
+
+    let events = select! {
+        value = events_receiver => value.expect("Failed to receive events"),
+        _ = time::sleep(Duration::from_secs(5)) => panic!("Timeout waiting for events"),
+    };
+    assert_eq!(events[0].as_log().value().to_string(), "\"foo\"");
+    assert_eq!(events[1].as_log().value().to_string(), "\"bar\"");
+    // With delete_failed_message=true, completion handler IS called on rejection
+    select! {
+        _ = success_receiver => {}
+        _ = time::sleep(Duration::from_secs(5)) => panic!("Timeout waiting for completion handler"),
+    }
+}
+
+#[tokio::test]
+async fn test_messages_rejected_retain_failed_message() {
+    let (tx, rx) = SourceSender::new_test_finalize(EventStatus::Rejected);
+    let streamer = super::AzureBlobStreamer::new(
+        ShutdownSignal::noop(),
+        tx,
+        LogNamespace::Vector,
+        true,
+        false, // delete_failed_message = false: retain on rejection
         default_framing(),
         default_decoding(),
     );
@@ -98,7 +151,8 @@ async fn test_messages_rejected() {
     };
     assert_eq!(events[0].as_log().value().to_string(), "\"foo\"");
     assert_eq!(events[1].as_log().value().to_string(), "\"bar\"");
-    assert!(success_receiver.try_recv().is_err()); // assert success handler not called
+    // With delete_failed_message=false, completion handler is NOT called on rejection
+    assert!(success_receiver.try_recv().is_err());
 }
 
 // Test blob with JSON decoding
@@ -113,6 +167,7 @@ async fn test_json_decoding_blob() {
         ShutdownSignal::noop(),
         tx,
         LogNamespace::Vector,
+        true,
         true,
         default_framing(),
         DeserializerConfig::Json(JsonDeserializerConfig::default()),
@@ -161,6 +216,7 @@ async fn test_log_namespace_legacy() {
         ShutdownSignal::noop(),
         tx,
         LogNamespace::Legacy,
+        true,
         true,
         default_framing(),
         default_decoding(),

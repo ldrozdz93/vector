@@ -175,10 +175,25 @@ components: sources: azure_blob: {
 				If acknowledgements are enabled, the queue message is only deleted after downstream
 				components have confirmed delivery. This ensures at-least-once delivery semantics.
 
+				**Visibility Timeout:** When messages are received from the queue, they are made invisible
+				to other consumers for the duration of `visibility_timeout_secs` (default: 300 seconds).
+				This timeout is set once at receive time and is NOT extended during processing. If
+				processing takes longer than the visibility timeout, the message may be received again,
+				causing duplicate processing. Increase `visibility_timeout_secs` if processing large blobs.
+
+				**Batch Size:** The `max_number_of_messages` option (default: 10) controls how many messages
+				are fetched per queue request. Since messages are processed sequentially, a lower value
+				reduces the risk of visibility timeouts expiring before messages are processed.
+
+				**Failed Message Handling:** When a message is permanently rejected by a downstream sink,
+				the `delete_failed_message` option (default: true) controls whether the message is deleted
+				from the queue. When false, rejected messages are retained and will become visible again
+				after the visibility timeout expires.
+
 				The source automatically handles:
 				- Blob downloads with streaming to handle large files efficiently
-				- 404 errors for blobs that no longer exist
-				- Graceful shutdown without losing events
+				- 404 errors for blobs that no longer exist (queue message is deleted)
+				- Graceful shutdown with shutdown checks between message batches
 				"""
 		}
 
