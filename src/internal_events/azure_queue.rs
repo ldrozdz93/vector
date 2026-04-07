@@ -68,11 +68,11 @@ pub struct QueueMessageReceiveError<'a, E> {
 }
 
 #[cfg(feature = "sources-azure_blob")]
-impl<'a, E: std::fmt::Display + std::fmt::Debug> InternalEvent for QueueMessageReceiveError<'a, E> {
+impl<'a, E: std::fmt::Display> InternalEvent for QueueMessageReceiveError<'a, E> {
     fn emit(self) {
         error!(
-            message = "Failed reading messages",
-            event = format!("{:?}", self.error),
+            message = "Failed to fetch Azure Queue events.",
+            error = %self.error,
             error_code = "failed_fetching_azure_queue_events",
             error_type = error_type::REQUEST_FAILED,
             stage = error_stage::RECEIVING,

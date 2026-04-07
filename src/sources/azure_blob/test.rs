@@ -301,6 +301,20 @@ fn test_content_type_to_compression() {
     // Test unknown types
     assert_eq!(super::content_type_to_compression("text/plain"), None);
     assert_eq!(super::content_type_to_compression("application/json"), None);
+
+    // Test MIME parameters are stripped
+    assert_eq!(
+        super::content_type_to_compression("application/gzip; charset=utf-8"),
+        Some(super::Compression::Gzip)
+    );
+    assert_eq!(
+        super::content_type_to_compression("application/x-gzip; boundary=something"),
+        Some(super::Compression::Gzip)
+    );
+    assert_eq!(
+        super::content_type_to_compression("application/zstd; q=0.9"),
+        Some(super::Compression::Zstd)
+    );
 }
 
 #[test]

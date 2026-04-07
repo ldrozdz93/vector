@@ -194,8 +194,10 @@ pub(super) fn determine_compression(
 }
 
 /// Converts Content-Type header value to Compression enum.
+/// Strips MIME parameters (e.g. `application/gzip; charset=utf-8` → `application/gzip`).
 fn content_type_to_compression(content_type: &str) -> Option<Compression> {
-    match content_type {
+    let base_type = content_type.split(';').next().unwrap_or(content_type).trim();
+    match base_type {
         "application/gzip" | "application/x-gzip" => Some(Compression::Gzip),
         "application/zstd" => Some(Compression::Zstd),
         _ => None,
@@ -310,7 +312,6 @@ impl AzureBlobStreamer {
             let container = container.clone();
             let blob = blob_name.clone();
             stream! {
-                // TODO: consider selecting with a shutdown
                 while let Some(chunk) = data_stream.next().await {
                     bytes_received.emit(ByteSize(chunk.len()));
                     let (events, _) = match decoder.deserializer_parse(chunk) {

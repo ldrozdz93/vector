@@ -35,7 +35,7 @@ components: sources: azure_blob: {
 			"""
 				The Azure Blob Storage source requires an Azure Storage Queue configured to
 				receive Event Grid notifications for the desired Azure Blob Storage container.
-				The queue should be subscribed to BlobCreated events from the storage account.
+				The queue should be subscribed to BlobCreated and BlobRenamed events from the storage account.
 				""",
 		]
 		warnings: []
@@ -193,7 +193,15 @@ components: sources: azure_blob: {
 				The source automatically handles:
 				- Blob downloads with streaming to handle large files efficiently
 				- 404 errors for blobs that no longer exist (queue message is deleted)
+				- Unsupported event types and messages for other containers (queue message is deleted)
 				- Graceful shutdown with shutdown checks between message batches
+
+				**Emitted Metrics:**
+				- `azure_queue_message_processing_succeeded_total` — messages processed successfully
+				- `azure_queue_message_processing_errored_total` — messages with transient delivery errors
+				- `azure_queue_message_processing_rejected_total` — messages permanently rejected
+				- `azure_queue_event_ignored_total` (tagged by `ignore_type`) — events skipped due to
+				  unsupported event type, mismatching container, or blob not found
 				"""
 		}
 

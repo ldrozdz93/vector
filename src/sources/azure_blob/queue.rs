@@ -356,6 +356,7 @@ async fn process_event_grid_message(
             subject: &body.subject,
             event_type: &body.event_type,
         });
+        remove_message_from_queue(queue_client, message).await;
         return Ok(None);
     }
     let (container, blob) = parse_subject(body.subject.clone())
@@ -368,7 +369,7 @@ async fn process_event_grid_message(
             configured_container: container_client.container_name(),
             container: container.as_str(),
         });
-
+        remove_message_from_queue(queue_client, message).await;
         return Ok(None);
     }
     trace!(
