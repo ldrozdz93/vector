@@ -25,6 +25,7 @@ impl AzureBlobConfig {
                 queue: Some(Config {
                     queue_name: format!("test-{}", rand::random::<u32>()),
                     poll_secs: 1,
+                    ..Default::default()
                 }),
                 decoding: default_decoding(),
                 ..Default::default()
@@ -197,6 +198,39 @@ impl AzureBlobConfig {
             .await
             .expect("Failed putting message");
     }
+    async fn queue_notify_custom_event(&self, name: &str, event_type: &str) {
+        let queue_client = make_queue_client(self).expect("Failed to create queue client");
+        let message = format!(
+            r#"{{
+          "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
+          "subject": "/blobServices/default/containers/logs/blobs/{}",
+          "eventType": "{}",
+          "id": "be3f21f7-201e-000b-7605-a29195062630",
+          "data": {{
+            "api": "PutBlob",
+            "clientRequestId": "1fa42c94-6dd3-4172-95c4-fd9cf56b5009",
+            "requestId": "be3f21f7-201e-000b-7605-a29195000000",
+            "eTag": "0x8DC701C5D3FFDF6",
+            "contentType": "application/octet-stream",
+            "contentLength": 0,
+            "blobType": "BlockBlob",
+            "url": "https://eventspocaccount.blob.core.windows.net/logs/{}",
+            "sequencer": "0000000000000000000000000005C5360000000000276a63",
+            "storageDiagnostics": {{
+              "batchId": "fec5b12c-2006-0034-0005-a25936000000"
+            }}
+          }},
+          "dataVersion": "",
+          "metadataVersion": "1",
+          "eventTime": "2024-05-09T11:37:10.5637878Z"
+        }}"#,
+            name, event_type, name
+        );
+        queue_client
+            .put_message(BASE64_STANDARD.encode(message))
+            .await
+            .expect("Failed putting message");
+    }
 }
 
 /// Test basic functionality: reading a single line from a blob.
@@ -332,6 +366,7 @@ async fn azure_blob_emit_error_on_message_read() {
     config.queue = Some(Config {
         queue_name: "nonexistent".to_string(),
         poll_secs: 1,
+        ..Default::default()
     });
 
     let events = config.run_error().await;
@@ -906,6 +941,89 @@ async fn azure_blob_multiline_halt_with() {
     assert!(second_log.contains("BEGIN transaction2"));
     assert!(second_log.contains("more processing"));
     assert!(second_log.contains("END"));
+}
+
+/// Test that unsupported event types are ignored and their queue messages deleted.
+///
+/// **Setup:**
+/// - Send an Event Grid notification with unsupported event type "Microsoft.Storage.BlobDeleted"
+/// - Upload a valid blob and send a BlobCreated notification
+///
+/// **Verification:**
+/// - Verify only the valid blob's event is received (1 event)
+/// - Verify the unsupported event message is deleted from the queue (not stuck for reprocessing)
+///
+/// **Purpose:** Validate that unsupported event types don't cause infinite reprocessing loops.
+#[tokio::test]
+async fn azure_blob_ignore_unsupported_event_type() {
+    let config = AzureBlobConfig::new_emulator().await;
+
+    config
+        .queue_notify_custom_event("some-blob.txt", "Microsoft.Storage.BlobDeleted")
+        .await;
+    config
+        .upload_blob("valid.txt".to_string(), "valid content".to_string())
+        .await;
+
+    let events = config.run_assert().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].as_log()["message"], "valid content".into());
+}
+
+/// Test that messages for mismatching containers are ignored and deleted from the queue.
+///
+/// **Setup:**
+/// - Send an Event Grid notification referencing a different container than configured
+/// - Upload a valid blob and send a BlobCreated notification for the correct container
+///
+/// **Verification:**
+/// - Verify only the valid blob's event is received (1 event)
+/// - Verify the mismatching container message is deleted (not stuck for reprocessing)
+///
+/// **Purpose:** Validate that messages for other containers don't cause infinite reprocessing loops.
+#[tokio::test]
+async fn azure_blob_ignore_mismatching_container() {
+    let config = AzureBlobConfig::new_emulator().await;
+
+    // Send a BlobCreated event referencing a different container
+    let queue_client = make_queue_client(&config).expect("Failed to create queue client");
+    let message = format!(
+        r#"{{
+      "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
+      "subject": "/blobServices/default/containers/other-container/blobs/some-blob.txt",
+      "eventType": "Microsoft.Storage.BlobCreated",
+      "id": "be3f21f7-201e-000b-7605-a29195062631",
+      "data": {{
+        "api": "PutBlob",
+        "clientRequestId": "1fa42c94-6dd3-4172-95c4-fd9cf56b5009",
+        "requestId": "be3f21f7-201e-000b-7605-a29195000000",
+        "eTag": "0x8DC701C5D3FFDF6",
+        "contentType": "application/octet-stream",
+        "contentLength": 0,
+        "blobType": "BlockBlob",
+        "url": "https://eventspocaccount.blob.core.windows.net/other-container/some-blob.txt",
+        "sequencer": "0000000000000000000000000005C5360000000000276a63",
+        "storageDiagnostics": {{
+          "batchId": "fec5b12c-2006-0034-0005-a25936000000"
+        }}
+      }},
+      "dataVersion": "",
+      "metadataVersion": "1",
+      "eventTime": "2024-05-09T11:37:10.5637878Z"
+    }}"#
+    );
+    queue_client
+        .put_message(BASE64_STANDARD.encode(message))
+        .await
+        .expect("Failed putting message");
+
+    config
+        .upload_blob("valid.txt".to_string(), "valid content".to_string())
+        .await;
+
+    let events = config.run_assert().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].as_log()["message"], "valid content".into());
 }
 
 /// Test complete pipeline: gzip compression + multiline aggregation + JSON decoding.
