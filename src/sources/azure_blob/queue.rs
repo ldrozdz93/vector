@@ -202,8 +202,11 @@ pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient
 /// - The container client cannot be initialized
 /// - Azure authentication fails
 pub fn make_container_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<ContainerClient>> {
-    crate::azure::build_client(cfg.connection_string.clone().into(), cfg.container_name.clone())
-        .map_err(|e| format!("Failed to create Azure container client: {}", e).into())
+    crate::azure::build_client(
+        cfg.connection_string.clone().into(),
+        cfg.container_name.clone(),
+    )
+    .map_err(|e| format!("Failed to create Azure container client: {}", e).into())
 }
 
 /// Applies decompression to an async reader based on the compression type.
@@ -287,7 +290,12 @@ async fn create_blob_stream(
     };
 
     let reader = Box::pin(StreamReader::new(byte_stream));
-    Ok(apply_decompression(reader, compression, blob_name, content_type))
+    Ok(apply_decompression(
+        reader,
+        compression,
+        blob_name,
+        content_type,
+    ))
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -359,8 +367,8 @@ async fn process_event_grid_message(
         remove_message_from_queue(queue_client, message).await;
         return Ok(None);
     }
-    let (container, blob) = parse_subject(body.subject.clone())
-        .ok_or(ProcessingError::FailedToParseSubject {
+    let (container, blob) =
+        parse_subject(body.subject.clone()).ok_or(ProcessingError::FailedToParseSubject {
             subject: body.subject,
         })?;
 
@@ -568,24 +576,48 @@ fn test_parse_subject() {
     // (input, expected_container, expected_blob) — None means parse should fail
     let cases: Vec<(&str, Option<(&str, &str)>)> = vec![
         // Simple blob name
-        ("/blobServices/default/containers/content/blobs/foo", Some(("content", "foo"))),
+        (
+            "/blobServices/default/containers/content/blobs/foo",
+            Some(("content", "foo")),
+        ),
         // Single file in container
-        ("/blobServices/default/containers/logs/blobs/file.txt", Some(("logs", "file.txt"))),
+        (
+            "/blobServices/default/containers/logs/blobs/file.txt",
+            Some(("logs", "file.txt")),
+        ),
         // Nested path
-        ("/blobServices/default/containers/logs/blobs/path/to/file.txt", Some(("logs", "path/to/file.txt"))),
+        (
+            "/blobServices/default/containers/logs/blobs/path/to/file.txt",
+            Some(("logs", "path/to/file.txt")),
+        ),
         // Deep nested path with dates
-        ("/blobServices/default/containers/data/blobs/2024/01/15/logs/app.log", Some(("data", "2024/01/15/logs/app.log"))),
+        (
+            "/blobServices/default/containers/data/blobs/2024/01/15/logs/app.log",
+            Some(("data", "2024/01/15/logs/app.log")),
+        ),
         // Real-world Azure log path
         (
             "/blobServices/default/containers/insights-logs-signinlogs/blobs/tenantId=0e35ee7a-425d-45a5-9013-218c1eae8fd4/y=2024/m=06/d=20/h=05/m=00/PT1H.json",
-            Some(("insights-logs-signinlogs", "tenantId=0e35ee7a-425d-45a5-9013-218c1eae8fd4/y=2024/m=06/d=20/h=05/m=00/PT1H.json")),
+            Some((
+                "insights-logs-signinlogs",
+                "tenantId=0e35ee7a-425d-45a5-9013-218c1eae8fd4/y=2024/m=06/d=20/h=05/m=00/PT1H.json",
+            )),
         ),
         // Special characters (URL-encoded spaces)
-        ("/blobServices/default/containers/my-container/blobs/file%20with%20spaces.txt", Some(("my-container", "file%20with%20spaces.txt"))),
+        (
+            "/blobServices/default/containers/my-container/blobs/file%20with%20spaces.txt",
+            Some(("my-container", "file%20with%20spaces.txt")),
+        ),
         // Unicode
-        ("/blobServices/default/containers/données/blobs/файл.txt", Some(("données", "файл.txt"))),
+        (
+            "/blobServices/default/containers/données/blobs/файл.txt",
+            Some(("données", "файл.txt")),
+        ),
         // Path traversal preserved as-is (Azure handles security)
-        ("/blobServices/default/containers/backup/blobs/../../../etc/passwd", Some(("backup", "../../../etc/passwd"))),
+        (
+            "/blobServices/default/containers/backup/blobs/../../../etc/passwd",
+            Some(("backup", "../../../etc/passwd")),
+        ),
         // Invalid: too short
         ("/blobServices/default", None),
         // Invalid: empty
@@ -597,7 +629,10 @@ fn test_parse_subject() {
         // Invalid: wrong fixed segment "containers"
         ("/blobServices/default/wrongSegment/content/blobs/foo", None),
         // Invalid: wrong fixed segment "blobs"
-        ("/blobServices/default/containers/content/wrongSegment/foo", None),
+        (
+            "/blobServices/default/containers/content/wrongSegment/foo",
+            None,
+        ),
         // Invalid: enough segments but all wrong
         ("/a/b/c/d/e/f/g", None),
     ];
@@ -606,7 +641,8 @@ fn test_parse_subject() {
         let result = parse_subject(subject.to_string());
         match expected {
             Some((container, blob)) => {
-                let (c, b) = result.unwrap_or_else(|| panic!("Expected Some for subject: {subject}"));
+                let (c, b) =
+                    result.unwrap_or_else(|| panic!("Expected Some for subject: {subject}"));
                 assert_eq!(c, container, "container mismatch for subject: {subject}");
                 assert_eq!(b, blob, "blob mismatch for subject: {subject}");
             }

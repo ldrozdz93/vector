@@ -196,7 +196,11 @@ pub(super) fn determine_compression(
 /// Converts Content-Type header value to Compression enum.
 /// Strips MIME parameters (e.g. `application/gzip; charset=utf-8` → `application/gzip`).
 fn content_type_to_compression(content_type: &str) -> Option<Compression> {
-    let base_type = content_type.split(';').next().unwrap_or(content_type).trim();
+    let base_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
     match base_type {
         "application/gzip" | "application/x-gzip" => Some(Compression::Gzip),
         "application/zstd" => Some(Compression::Zstd),
