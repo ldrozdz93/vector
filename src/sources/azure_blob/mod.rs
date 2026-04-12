@@ -254,9 +254,8 @@ pub struct BlobWithAck {
     /// Called after stream consumption to finalize queue message handling.
     /// Encapsulates both the success action (delete queue message) and
     /// read-error checking (retain queue message on framing errors).
-    /// Returns `true` if the queue message was deleted, `false` if retained.
     pub(super) completion_handler:
-        Box<dyn FnOnce(StreamResult) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send>,
+        Box<dyn FnOnce(StreamResult) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
     pub(super) container: String,
     pub(super) blob_name: String,
 }
@@ -407,18 +406,11 @@ impl AzureBlobStreamer {
         }
 
         match receiver {
-            None => {
-                let deleted = (blob.completion_handler)(StreamResult::Delivered).await;
-                if deleted {
-                    emit!(QueueMessageProcessingSucceeded {});
-                }
-            }
+            None => (blob.completion_handler)(StreamResult::Delivered).await,
             Some(receiver) => match receiver.await {
                 BatchStatus::Delivered => {
-                    let deleted = (blob.completion_handler)(StreamResult::Delivered).await;
-                    if deleted {
-                        emit!(QueueMessageProcessingSucceeded {});
-                    }
+                    (blob.completion_handler)(StreamResult::Delivered).await;
+                    emit!(QueueMessageProcessingSucceeded {});
                 }
                 BatchStatus::Errored => {
                     (blob.completion_handler)(StreamResult::Errored).await;
