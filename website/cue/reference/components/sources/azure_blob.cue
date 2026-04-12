@@ -83,13 +83,6 @@ components: sources: azure_blob: {
 						examples: ["2024/01/15/app.log"]
 					}
 				}
-				ingest_timestamp: {
-					description: "The timestamp of when the blob was ingested by Vector."
-					required:    true
-					type: string: {
-						examples: ["2020-10-26T12:34:56.789Z"]
-					}
-				}
 			}
 		}
 		metrics: "": {
@@ -162,7 +155,7 @@ components: sources: azure_blob: {
 
 		queue_processing: {
 			title: "Queue Message Processing"
-			body:  """
+			body: """
 				Vector polls the configured Azure Storage Queue for Event Grid messages about blob events.
 				When a message is received, Vector:
 
@@ -207,7 +200,7 @@ components: sources: azure_blob: {
 
 		authentication: {
 			title: "Authentication"
-			body:  """
+			body: """
 				The Azure Blob Storage source supports authentication via connection string.
 				The connection string should include the storage account name, access key, and endpoint.
 
@@ -233,7 +226,7 @@ components: sources: azure_blob: {
 
 		limitations: {
 			title: "Known Limitations"
-			body:  """
+			body: """
 				**Content-Encoding Header Not Supported**
 
 				Unlike the AWS S3 source, the Azure Blob source does NOT support automatic
@@ -256,9 +249,13 @@ components: sources: azure_blob: {
 	}
 
 	telemetry: metrics: {
-		component_errors_total:                      components.sources.internal_metrics.output.metrics.component_errors_total
-		component_received_bytes_total:              components.sources.internal_metrics.output.metrics.component_received_bytes_total
-		component_received_event_bytes_total:        components.sources.internal_metrics.output.metrics.component_received_event_bytes_total
-		component_received_events_total:             components.sources.internal_metrics.output.metrics.component_received_events_total
+		component_errors_total:                         components.sources.internal_metrics.output.metrics.component_errors_total
+		component_received_bytes_total:                 components.sources.internal_metrics.output.metrics.component_received_bytes_total
+		component_received_event_bytes_total:           components.sources.internal_metrics.output.metrics.component_received_event_bytes_total
+		component_received_events_total:                components.sources.internal_metrics.output.metrics.component_received_events_total
+		azure_queue_message_processing_succeeded_total: components.sources.internal_metrics.output.metrics.azure_queue_message_processing_succeeded_total
+		azure_queue_message_processing_errored_total:   components.sources.internal_metrics.output.metrics.azure_queue_message_processing_errored_total
+		azure_queue_message_processing_rejected_total:  components.sources.internal_metrics.output.metrics.azure_queue_message_processing_rejected_total
+		azure_queue_event_ignored_total:                components.sources.internal_metrics.output.metrics.azure_queue_event_ignored_total
 	}
 }
