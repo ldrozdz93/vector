@@ -461,15 +461,18 @@ async fn process_event_grid_message(
                                 "Read error for blob '{}' in container '{}': {}. Queue message retained for retry.",
                                 blob_for_warn, container_for_warn, err
                             );
-                            return;
+                            return false;
                         }
                         remove_message_from_queue(&queue_client_copy, message).await;
+                        true
                     }
                     StreamResult::Rejected => {
                         remove_message_from_queue(&queue_client_copy, message).await;
+                        true
                     }
                     StreamResult::Errored => {
                         // Retain queue message for retry on transient errors.
+                        false
                     }
                 }
             })

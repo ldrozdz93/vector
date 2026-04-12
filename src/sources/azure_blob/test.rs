@@ -30,6 +30,7 @@ async fn test_messages_delivered() {
         completion_handler: Box::new(move |_result: StreamResult| {
             Box::pin(async move {
                 success_sender.send(()).unwrap();
+                true
             })
         }),
         container: "test-container".to_string(),
@@ -80,6 +81,7 @@ async fn test_messages_rejected_delete_failed_message() {
         completion_handler: Box::new(move |_result: StreamResult| {
             Box::pin(async move {
                 success_sender.send(()).unwrap();
+                true
             })
         }),
         container: "test-container".to_string(),
@@ -131,6 +133,7 @@ async fn test_messages_rejected_retain_failed_message() {
         completion_handler: Box::new(move |_result: StreamResult| {
             Box::pin(async move {
                 success_sender.send(()).unwrap();
+                true
             })
         }),
         container: "test-container".to_string(),
@@ -179,7 +182,7 @@ async fn test_json_decoding_blob() {
         blob_data_stream: Box::pin(stream! {
             yield Bytes::from(json_line.as_bytes().to_vec());
         }),
-        completion_handler: Box::new(|_result: StreamResult| Box::pin(async move {})),
+        completion_handler: Box::new(|_result: StreamResult| Box::pin(async move { false })),
         container: "test-container".to_string(),
         blob_name: "json-blob.log".to_string(),
     };
@@ -227,7 +230,7 @@ async fn test_log_namespace_legacy() {
         blob_data_stream: Box::pin(stream! {
             yield Bytes::from("legacy_test".as_bytes().to_vec());
         }),
-        completion_handler: Box::new(|_result: StreamResult| Box::pin(async move {})),
+        completion_handler: Box::new(|_result: StreamResult| Box::pin(async move { false })),
         container: "test-container".to_string(),
         blob_name: "legacy-blob.log".to_string(),
     };

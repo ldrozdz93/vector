@@ -167,11 +167,27 @@ impl_generate_config_from_default!(AzureBlobConfig);
 impl AzureBlobConfig {
     /// Self validation
     pub fn validate(&self) -> crate::Result<()> {
-        if self.queue.is_none() || self.queue.as_ref().unwrap().queue_name.is_empty() {
-            return Err("Azure event grid queue must be set.".into());
-        }
+        let queue = match self.queue.as_ref() {
+            Some(queue) if !queue.queue_name.is_empty() => queue,
+            _ => return Err("Azure event grid queue must be set.".into()),
+        };
+
         if self.container_name.is_empty() {
             return Err("Azure Container must be set.".into());
+        }
+
+        if !(1..=32).contains(&queue.max_number_of_messages) {
+            return Err("Azure queue `max_number_of_messages` must be between 1 and 32.".into());
+        }
+
+        if !(1..=604800).contains(&queue.visibility_timeout_secs) {
+            return Err(
+                "Azure queue `visibility_timeout_secs` must be between 1 and 604800.".into(),
+            );
+        }
+
+        if queue.poll_secs == 0 {
+            return Err("Azure queue `poll_secs` must be greater than 0.".into());
         }
 
         Ok(())
@@ -238,8 +254,9 @@ pub struct BlobWithAck {
     /// Called after stream consumption to finalize queue message handling.
     /// Encapsulates both the success action (delete queue message) and
     /// read-error checking (retain queue message on framing errors).
+    /// Returns `true` if the queue message was deleted, `false` if retained.
     pub(super) completion_handler:
-        Box<dyn FnOnce(StreamResult) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>,
+        Box<dyn FnOnce(StreamResult) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send>,
     pub(super) container: String,
     pub(super) blob_name: String,
 }
@@ -390,11 +407,18 @@ impl AzureBlobStreamer {
         }
 
         match receiver {
-            None => (blob.completion_handler)(StreamResult::Delivered).await,
+            None => {
+                let deleted = (blob.completion_handler)(StreamResult::Delivered).await;
+                if deleted {
+                    emit!(QueueMessageProcessingSucceeded {});
+                }
+            }
             Some(receiver) => match receiver.await {
                 BatchStatus::Delivered => {
-                    (blob.completion_handler)(StreamResult::Delivered).await;
-                    emit!(QueueMessageProcessingSucceeded {});
+                    let deleted = (blob.completion_handler)(StreamResult::Delivered).await;
+                    if deleted {
+                        emit!(QueueMessageProcessingSucceeded {});
+                    }
                 }
                 BatchStatus::Errored => {
                     (blob.completion_handler)(StreamResult::Errored).await;
