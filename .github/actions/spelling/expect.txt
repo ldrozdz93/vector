@@ -187,6 +187,7 @@ EOL'ed
 errorf
 esque
 etsy
+eventgrid
 eventsdropped
 eventstore
 eventstoredb
@@ -376,6 +377,7 @@ musleabihf
 muslueabihf
 mustprogress
 mutiple
+myaccount
 myannotation
 mycie
 mycorp
@@ -436,6 +438,7 @@ percpu
 pgo
 PIDs
 PII
+pkill
 plainify
 plds
 ple
