@@ -1,7 +1,7 @@
 #[cfg(feature = "sources-azure_blob")]
 pub use azure_blob::*;
-use metrics::counter;
-use vector_lib::internal_event::{InternalEvent, error_stage, error_type};
+use vector_lib::counter;
+use vector_lib::internal_event::{CounterName, InternalEvent, error_stage, error_type};
 
 #[cfg(feature = "sources-azure_blob")]
 mod azure_blob {
@@ -27,7 +27,7 @@ mod azure_blob {
                 internal_log_rate_limit = true,
             );
             counter!(
-                "component_errors_total",
+                CounterName::ComponentErrorsTotal,
                 "error_code" => "failed_processing_azure_queue_message",
                 "error_type" => error_type::PARSER_FAILED,
                 "stage" => error_stage::PROCESSING,
@@ -51,7 +51,7 @@ mod azure_blob {
                 stage = error_stage::PROCESSING,
             );
             counter!(
-                "component_errors_total",
+                CounterName::ComponentErrorsTotal,
                 "error_code" => "invalid_azure_row_event",
                 "error_type" => error_type::CONDITION_FAILED,
                 "stage" => error_stage::PROCESSING,
@@ -78,7 +78,7 @@ impl<'a, E: std::fmt::Display> InternalEvent for QueueMessageReceiveError<'a, E>
             stage = error_stage::RECEIVING,
         );
         counter!(
-            "component_errors_total",
+            CounterName::ComponentErrorsTotal,
             "error_code" => "failed_fetching_azure_queue_events",
             "error_type" => error_type::REQUEST_FAILED,
             "stage" => error_stage::RECEIVING,
@@ -104,7 +104,7 @@ impl<'a, E: std::fmt::Display> InternalEvent for QueueMessageDeleteError<'a, E> 
             stage = error_stage::PROCESSING,
         );
         counter!(
-            "component_errors_total",
+            CounterName::ComponentErrorsTotal,
             "error_code" => "failed_deleting_azure_queue_event",
             "error_type" => error_type::ACKNOWLEDGMENT_FAILED,
             "stage" => error_stage::PROCESSING,
@@ -131,7 +131,7 @@ impl<'a> InternalEvent for QueueStorageInvalidEventIgnored<'a> {
             event_type = %self.event_type
         );
         counter!(
-            "azure_queue_event_ignored_total",
+            CounterName::AzureQueueEventIgnoredTotal,
             "ignore_type" => "invalid_event_type"
         )
         .increment(1);
@@ -154,7 +154,7 @@ impl<'a> InternalEvent for QueueStorageMismatchingContainerName<'a> {
             container = %self.container,
         );
         counter!(
-            "azure_queue_event_ignored_total",
+            CounterName::AzureQueueEventIgnoredTotal,
             "ignore_type" => "mismatching_container_name"
         )
         .increment(1);
@@ -169,7 +169,7 @@ pub struct QueueMessageProcessingSucceeded {}
 impl InternalEvent for QueueMessageProcessingSucceeded {
     fn emit(self) {
         trace!(message = "Processed azure queue message successfully.");
-        counter!("azure_queue_message_processing_succeeded_total").increment(1);
+        counter!(CounterName::AzureQueueMessageProcessingSucceededTotal).increment(1);
     }
 }
 
@@ -181,7 +181,7 @@ pub struct QueueMessageProcessingErrored {}
 impl InternalEvent for QueueMessageProcessingErrored {
     fn emit(self) {
         warn!(message = "Batch event had a transient error in delivery.");
-        counter!("azure_queue_message_processing_errored_total").increment(1);
+        counter!(CounterName::AzureQueueMessageProcessingErroredTotal).increment(1);
     }
 }
 
@@ -193,7 +193,7 @@ pub struct QueueMessageProcessingRejected {}
 impl InternalEvent for QueueMessageProcessingRejected {
     fn emit(self) {
         warn!(message = "Batch event had a permanent failure or rejection.");
-        counter!("azure_queue_message_processing_rejected_total").increment(1);
+        counter!(CounterName::AzureQueueMessageProcessingRejectedTotal).increment(1);
     }
 }
 
@@ -211,7 +211,7 @@ impl<'a> InternalEvent for BlobDoesntExist<'a> {
             blob_name = self.nonexistent_blob_name
         );
         counter!(
-            "azure_queue_event_ignored_total",
+            CounterName::AzureQueueEventIgnoredTotal,
             "ignore_type" => "blob_doesnt_exist"
         )
         .increment(1);

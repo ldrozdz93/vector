@@ -26,6 +26,10 @@ pub enum CounterName {
     AggregateFailedUpdates,
     AggregateFlushesTotal,
     ApiStartedTotal,
+    AzureQueueEventIgnoredTotal,
+    AzureQueueMessageProcessingErroredTotal,
+    AzureQueueMessageProcessingRejectedTotal,
+    AzureQueueMessageProcessingSucceededTotal,
     CheckpointsTotal,
     ChecksumErrorsTotal,
     CollectCompletedTotal,
@@ -281,6 +285,16 @@ impl CounterName {
             Self::AggregateFailedUpdates => "aggregate_failed_updates",
             Self::AggregateFlushesTotal => "aggregate_flushes_total",
             Self::ApiStartedTotal => "api_started_total",
+            Self::AzureQueueEventIgnoredTotal => "azure_queue_event_ignored_total",
+            Self::AzureQueueMessageProcessingErroredTotal => {
+                "azure_queue_message_processing_errored_total"
+            }
+            Self::AzureQueueMessageProcessingRejectedTotal => {
+                "azure_queue_message_processing_rejected_total"
+            }
+            Self::AzureQueueMessageProcessingSucceededTotal => {
+                "azure_queue_message_processing_succeeded_total"
+            }
             Self::CheckpointsTotal => "checkpoints_total",
             Self::ChecksumErrorsTotal => "checksum_errors_total",
             Self::CollectCompletedTotal => "collect_completed_total",

@@ -987,13 +987,12 @@ async fn azure_blob_ignore_mismatching_container() {
 
     // Send a BlobCreated event referencing a different container
     let queue_client = make_queue_client(&config).expect("Failed to create queue client");
-    let message = format!(
-        r#"{{
+    let message = r#"{
       "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
       "subject": "/blobServices/default/containers/other-container/blobs/some-blob.txt",
       "eventType": "Microsoft.Storage.BlobCreated",
       "id": "be3f21f7-201e-000b-7605-a29195062631",
-      "data": {{
+      "data": {
         "api": "PutBlob",
         "clientRequestId": "1fa42c94-6dd3-4172-95c4-fd9cf56b5009",
         "requestId": "be3f21f7-201e-000b-7605-a29195000000",
@@ -1003,15 +1002,15 @@ async fn azure_blob_ignore_mismatching_container() {
         "blobType": "BlockBlob",
         "url": "https://eventspocaccount.blob.core.windows.net/other-container/some-blob.txt",
         "sequencer": "0000000000000000000000000005C5360000000000276a63",
-        "storageDiagnostics": {{
+        "storageDiagnostics": {
           "batchId": "fec5b12c-2006-0034-0005-a25936000000"
-        }}
-      }},
+        }
+      },
       "dataVersion": "",
       "metadataVersion": "1",
       "eventTime": "2024-05-09T11:37:10.5637878Z"
-    }}"#
-    );
+    }"#
+    .to_string();
     queue_client
         .put_message(BASE64_STANDARD.encode(message))
         .await
