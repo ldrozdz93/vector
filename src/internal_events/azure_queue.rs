@@ -37,14 +37,14 @@ mod azure_blob {
     }
 
     #[derive(Debug, NamedInternalEvent)]
-    pub struct InvalidRowEventType<'a> {
+    pub struct InvalidRowEventTypeError<'a> {
         pub event: &'a Event,
     }
 
-    impl<'a> InternalEvent for InvalidRowEventType<'a> {
+    impl<'a> InternalEvent for InvalidRowEventTypeError<'a> {
         fn emit(self) {
             error!(
-                message = "Expected Azure rows as Log Events",
+                message = "Expected Azure rows as Log Events.",
                 event = ?self.event,
                 error_code = "invalid_azure_row_event",
                 error_type = error_type::CONDITION_FAILED,
@@ -97,7 +97,7 @@ pub struct QueueMessageDeleteError<'a, E> {
 impl<'a, E: std::fmt::Display> InternalEvent for QueueMessageDeleteError<'a, E> {
     fn emit(self) {
         error!(
-            message = "Failed deleting message",
+            message = "Failed deleting message.",
             error = %self.error,
             error_code = "failed_deleting_azure_queue_event",
             error_type = error_type::ACKNOWLEDGMENT_FAILED,
@@ -125,7 +125,7 @@ pub struct QueueStorageInvalidEventIgnored<'a> {
 impl<'a> InternalEvent for QueueStorageInvalidEventIgnored<'a> {
     fn emit(self) {
         trace!(
-            message = "Ignoring event because of wrong event type",
+            message = "Ignoring event because of wrong event type.",
             container = %self.container,
             subject = %self.subject,
             event_type = %self.event_type
@@ -149,7 +149,7 @@ pub struct QueueStorageMismatchingContainerName<'a> {
 impl<'a> InternalEvent for QueueStorageMismatchingContainerName<'a> {
     fn emit(self) {
         warn!(
-            message = "Ignoring event because of wrong container name",
+            message = "Ignoring event because of wrong container name.",
             configured_container = %self.configured_container,
             container = %self.container,
         );
@@ -180,7 +180,7 @@ pub struct QueueMessageProcessingErrored {}
 #[cfg(feature = "sources-azure_blob")]
 impl InternalEvent for QueueMessageProcessingErrored {
     fn emit(self) {
-        error!(message = "Batch event had a transient error in delivery.");
+        warn!(message = "Batch event had a transient error in delivery.");
         counter!("azure_queue_message_processing_errored_total").increment(1);
     }
 }
@@ -192,7 +192,7 @@ pub struct QueueMessageProcessingRejected {}
 #[cfg(feature = "sources-azure_blob")]
 impl InternalEvent for QueueMessageProcessingRejected {
     fn emit(self) {
-        error!(message = "Batch event had a permanent failure or rejection.");
+        warn!(message = "Batch event had a permanent failure or rejection.");
         counter!("azure_queue_message_processing_rejected_total").increment(1);
     }
 }
@@ -207,7 +207,7 @@ pub struct BlobDoesntExist<'a> {
 impl<'a> InternalEvent for BlobDoesntExist<'a> {
     fn emit(self) {
         warn!(
-            message = "Ignoring event because blob doesn't exist in storage",
+            message = "Ignoring event because blob doesn't exist in storage.",
             blob_name = self.nonexistent_blob_name
         );
         counter!(

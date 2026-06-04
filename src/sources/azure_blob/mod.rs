@@ -70,7 +70,7 @@ use crate::{
     },
     event::{BatchNotifier, BatchStatus, EstimatedJsonEncodedSizeOf, Event},
     internal_events::{
-        EventsReceived, InvalidRowEventType, QueueMessageProcessingErrored,
+        EventsReceived, InvalidRowEventTypeError, QueueMessageProcessingErrored,
         QueueMessageProcessingRejected, QueueMessageProcessingSucceeded, StreamClosedError,
     },
     line_agg,
@@ -380,7 +380,7 @@ impl AzureBlobStreamer {
                                 yield event
                             }
                             _ => {
-                                emit!(InvalidRowEventType{event: &event})
+                                emit!(InvalidRowEventTypeError{event: &event})
                             }
                         }
                     }

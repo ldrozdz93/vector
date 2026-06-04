@@ -381,7 +381,7 @@ async fn process_event_grid_message(
         return Ok(None);
     }
     trace!(
-        "Detected blob event ({}) in container '{}': '{}'",
+        "Detected blob event ({}) in container '{}': '{}'.",
         &body.event_type, &container, &blob
     );
     let blob_client = container_client.blob_client(&blob);
@@ -506,7 +506,7 @@ fn parse_subject(subject: String) -> Option<(String, String)> {
         || parts[5] != "blobs"
     {
         warn!(
-            "Ignoring event: subject has invalid format (expected /blobServices/default/containers/{{container}}/blobs/{{blob}}), got: '{}'",
+            "Ignoring event: subject has invalid format (expected /blobServices/default/containers/{{container}}/blobs/{{blob}}), got: '{}'.",
             subject
         );
         return None;
