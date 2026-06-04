@@ -2,7 +2,7 @@
 
 ## Test 1
 
-```
+```text
 $ echo -e "2024-01-02 INFO Application started\n2024-01-02 INFO Processing request\n2024-01-02 INFO Request completed" | \
 $ az storage blob upload \
   --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
@@ -32,7 +32,7 @@ Finished[#############################################################]  100.000
 
 ## Test 2
 
-```
+```text
 $ echo '{"timestamp":"2024-01-02T12:00:00Z","level":"info","message":"Test log 1"}
 {"timestamp":"2024-01-02T12:00:01Z","level":"warn","message":"Test log 2"}
 {"timestamp":"2024-01-02T12:00:02Z","level":"error","message":"Test log 3"}' | \
@@ -64,7 +64,7 @@ Finished[#############################################################]  100.000
 
 ## Test 3
 
-```
+```text
 $ echo -e "Compressed log line 1\nCompressed log line 2\nCompressed log line 3" | gzip > /tmp/test.log.gz
 $ az storage blob upload \
   --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
@@ -94,7 +94,7 @@ Finished[#############################################################]  100.000
 
 ## Test 4
 
-```
+```text
 $ echo -e "Line 1\nLine 2\nLine 3" | zstd > /tmp/test.log.zst
 $ az storage blob upload \
   --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
@@ -124,7 +124,7 @@ Finished[#############################################################]  100.000
 
 ## Test 5
 
-```
+```text
 $ echo '2024-01-02 12:34:56 ERROR Something failed
   at com.example.Service.process(Service.java:45)
   at com.example.Handler.handle(Handler.java:23)
@@ -159,7 +159,7 @@ Finished[#############################################################]  100.000
 
 ## Test 6
 
-```
+```text
 $ kill -SIGTERM $VECTOR_PID
 
 ### vector shell output

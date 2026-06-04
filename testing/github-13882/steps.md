@@ -5,6 +5,7 @@
 This PR introduces a new Vector source that reads logs from Azure Blob Storage by processing events from an Azure Storage Queue. The implementation aims at supporting the same features as the AWS S3 source, providing Event Grid integration for real-time blob processing.
 
 Key features implemented:
+
 - Compression auto-detection (gzip, zstd) from Content-Type headers and file extensions
 - Configurable framing (newline-delimited, character-delimited, bytes, length-delimited, octet-counting)
 - Multiline aggregation for stack traces and multi-line logs
@@ -28,17 +29,22 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 ### Prerequisites Setup
 
 - Deploy Azure infrastructure:
+
   ```bash
   cd testing/github-13882
   terraform init
   terraform apply
   export AZURE_STORAGE_CONNECTION_STRING=$(terraform output -raw connection_string)
   ```
+
 - Build Vector with azure_blob feature:
+
   ```bash
   cargo build --features sources-azure_blob
   ```
+
 - Start Vector:
+
   ```bash
   cargo run --features sources-azure_blob -- --config testing/github-13882/config.toml
   ```
@@ -47,6 +53,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 
 1. Plain text logs with newline-delimited framing:
    - Upload plain text logs:
+
      ```bash
      echo -e "2024-01-02 INFO Application started\n2024-01-02 INFO Processing request\n2024-01-02 INFO Request completed" | \
      az storage blob upload \
@@ -55,6 +62,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
        --name "test-$(date +%s).log" \
        --data @-
      ```
+
    - Vector receives Event Grid notification via queue.
    - Blob is downloaded and processed by `azure_logs_plain` source (bytes codec, no multiline).
    - Three events are emitted (one per line).
@@ -63,6 +71,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 
 2. JSON logs with JSON codec:
    - Upload JSON-formatted logs:
+
      ```bash
      echo '{"timestamp":"2024-01-02T12:00:00Z","level":"info","message":"Test log 1"}
      {"timestamp":"2024-01-02T12:00:01Z","level":"warn","message":"Test log 2"}
@@ -73,6 +82,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
        --name "json-test-$(date +%s).log" \
        --data @-
      ```
+
    - Vector processes blob with `azure_logs_json` source (JSON codec).
    - Three events emitted.
    - JSON fields (`timestamp`, `level`, `message`) are parsed into event structure.
@@ -80,6 +90,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 
 3. Gzip compression auto-detection from file extension:
    - Upload gzip-compressed plain text blob with `.gz` extension:
+
      ```bash
      echo -e "Compressed log line 1\nCompressed log line 2\nCompressed log line 3" | gzip > /tmp/test.log.gz
      az storage blob upload \
@@ -88,6 +99,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
        --name "test-$(date +%s).log.gz" \
        --file /tmp/test.log.gz
      ```
+
    - Compression auto-detected from `.gz` extension (compression=auto by default).
    - Blob automatically decompressed during processing.
    - Three events emitted (one per line after decompression).
@@ -95,6 +107,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 
 4. Zstd compression support:
    - Upload zstd-compressed plain text blob:
+
      ```bash
      echo -e "Line 1\nLine 2\nLine 3" | zstd > /tmp/test.log.zst
      az storage blob upload \
@@ -103,6 +116,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
        --name "zstd-test-$(date +%s).log.zst" \
        --file /tmp/test.log.zst
      ```
+
    - Zstd compression detected from `.zst` extension.
    - Blob decompressed using zstd algorithm.
    - Three events emitted (one per line).
@@ -110,6 +124,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 
 5. Multiline aggregation for stack traces:
    - Upload logs with stack traces that should be aggregated:
+
      ```bash
      echo '2024-01-02 12:34:56 ERROR Something failed
        at com.example.Service.process(Service.java:45)
@@ -124,6 +139,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
        --name "stacktrace-$(date +%s).log.gz" \
        --file /tmp/stacktrace.log.gz
      ```
+
    - Processed by `azure_logs_multiline` source (bytes codec WITH multiline config).
    - Compression auto-detected and decompressed.
    - Multiline configuration aggregates continuation lines (starting with whitespace).
@@ -133,10 +149,12 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
    - Total: 3 events (not 6).
 
 6. Graceful shutdown:
+
      ```bash
      sleep 5
      pkill -SIGTERM vector
      ```
+
    - Vector receives SIGTERM and begins graceful shutdown.
    - No panics or errors during shutdown.
    - Vector exits with status code 0.
@@ -144,6 +162,7 @@ We'll use the Azure CLI (`az storage blob upload`) to upload test blobs, which w
 ### Cleanup
 
 - After testing, destroy Azure resources to avoid ongoing costs:
+
   ```bash
   cd testing/github-13882
   terraform destroy
