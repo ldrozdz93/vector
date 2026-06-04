@@ -18,7 +18,7 @@ use crate::{
 
 impl AzureBlobConfig {
     pub async fn new_emulator() -> AzureBlobConfig {
-        let address = std::env::var("AZURE_ADDRESS").unwrap_or_else(|_| "localhost".to_string());
+        let address = std::env::var("AZURITE_ADDRESS").unwrap_or_else(|_| "localhost".to_string());
         let config = AzureBlobConfig {
                 connection_string: format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{}:10000/devstoreaccount1;QueueEndpoint=http://{}:10001/devstoreaccount1;TableEndpoint=http://{}:10002/devstoreaccount1;", address, address, address).into(),
                 container_name: "logs".to_string(),
