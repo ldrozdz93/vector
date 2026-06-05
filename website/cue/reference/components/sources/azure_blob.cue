@@ -22,7 +22,6 @@ components: sources: azure_blob: {
 	}
 
 	classes: {
-		commonly_used: true
 		deployment_roles: ["aggregator", "daemon", "sidecar"]
 		delivery:      "at_least_once"
 		development:   "beta"
