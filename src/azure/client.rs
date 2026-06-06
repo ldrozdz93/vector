@@ -395,26 +395,22 @@ impl SpecificAzureCredential {
     }
 }
 
-pub async fn build_client(
-    auth: Option<AzureAuthentication>,
-    connection_string: String,
-    container_name: String,
-    proxy: &crate::config::ProxyConfig,
-    tls: Option<AzureBlobTlsConfig>,
-) -> crate::Result<Arc<BlobContainerClient>> {
-    // Parse connection string without legacy SDK
-    let parsed = ParsedConnectionString::parse(&connection_string)
-        .map_err(|e| format!("Invalid connection string: {e}"))?;
-    // Compose container URL (SAS appended if present)
-    let container_url = parsed
-        .container_url(&container_name)
-        .map_err(|e| format!("Failed to build container URL: {e}"))?;
-    let url = Url::parse(&container_url).map_err(|e| format!("Invalid container URL: {e}"))?;
+/// An Azurite-supported storage service version, also accepted by the real Azure
+/// service (which accepts all previous versions).
+const STORAGE_SERVICE_VERSION: &str = "2025-11-05";
 
+/// Resolve the authentication for a client from the parsed connection string and the
+/// optional explicit authentication config.
+///
+/// Returns the token credential to pass to the client constructor (if any) and pushes
+/// the SharedKey signing policy into `client_options` when account-key auth is in use.
+async fn resolve_credential(
+    parsed: &ParsedConnectionString,
+    auth: Option<AzureAuthentication>,
+    client_options: &mut azure_core::http::ClientOptions,
+) -> crate::Result<Option<Arc<dyn TokenCredential>>> {
     let mut credential: Option<Arc<dyn TokenCredential>> = None;
 
-    // Prepare options; attach Shared Key policy if needed
-    let mut options = BlobContainerClientOptions::default();
     match (parsed.auth(), &auth) {
         (Auth::None, None) => {
             warn!("No authentication method provided, requests will be anonymous.");
@@ -434,14 +430,10 @@ pub async fn build_client(
             let policy = SharedKeyAuthorizationPolicy::new(
                 account_name,
                 account_key,
-                // Use an Azurite-supported storage service version
-                String::from("2025-11-05"),
+                String::from(STORAGE_SERVICE_VERSION),
             )
             .map_err(|e| format!("Failed to create SharedKey policy: {e}"))?;
-            options
-                .client_options
-                .per_call_policies
-                .push(Arc::new(policy));
+            client_options.per_call_policies.push(Arc::new(policy));
         }
         (Auth::None, Some(AzureAuthentication::Specific(..))) => {
             info!("Using Azure Authentication method.");
@@ -480,6 +472,16 @@ pub async fn build_client(
         }
     }
 
+    Ok(credential)
+}
+
+/// Build the HTTP transport for an Azure client, honoring Vector's proxy configuration
+/// and any additional CA certificate.
+fn build_transport(
+    url: &Url,
+    proxy: &crate::config::ProxyConfig,
+    tls: Option<&AzureBlobTlsConfig>,
+) -> crate::Result<azure_core::http::Transport> {
     // Use reqwest v0.13 since Azure SDK only implements HttpClient for reqwest::Client v0.13
     let mut reqwest_builder = reqwest_13::ClientBuilder::new();
     let bypass_proxy = {
@@ -508,7 +510,7 @@ pub async fn build_client(
         }
     }
 
-    if let Some(AzureBlobTlsConfig { ca_file }) = &tls
+    if let Some(AzureBlobTlsConfig { ca_file }) = tls
         && let Some(ca_file) = ca_file
     {
         let mut buf = Vec::new();
@@ -519,13 +521,73 @@ pub async fn build_client(
         reqwest_builder = reqwest_builder.add_root_certificate(cert);
     }
 
-    options.client_options.transport = Some(azure_core::http::Transport::new(std::sync::Arc::new(
+    Ok(azure_core::http::Transport::new(std::sync::Arc::new(
         reqwest_builder
             .build()
             .map_err(|e| format!("Failed to build reqwest client: {e}"))?,
-    )));
+    )))
+}
+
+/// Builds an Azure Blob Storage container client from a connection string,
+/// optionally with an explicit authentication method.
+///
+/// Supports both custom blob endpoints (e.g. Azurite) and standard Azure endpoints.
+pub async fn build_client(
+    auth: Option<AzureAuthentication>,
+    connection_string: String,
+    container_name: String,
+    proxy: &crate::config::ProxyConfig,
+    tls: Option<AzureBlobTlsConfig>,
+) -> crate::Result<Arc<BlobContainerClient>> {
+    // Parse connection string without legacy SDK
+    let parsed = ParsedConnectionString::parse(&connection_string)
+        .map_err(|e| format!("Invalid connection string: {e}"))?;
+    // Compose container URL (SAS appended if present)
+    let container_url = parsed
+        .container_url(&container_name)
+        .map_err(|e| format!("Failed to build container URL: {e}"))?;
+    let url = Url::parse(&container_url).map_err(|e| format!("Invalid container URL: {e}"))?;
+
+    let mut options = BlobContainerClientOptions::default();
+    let credential = resolve_credential(&parsed, auth, &mut options.client_options).await?;
+    options.client_options.transport = Some(build_transport(&url, proxy, tls.as_ref())?);
+
     let client =
         BlobContainerClient::new(url, credential, Some(options)).map_err(|e| format!("{e}"))?;
+    Ok(Arc::new(client))
+}
+
+/// Builds an Azure Storage Queue client from a connection string,
+/// optionally with an explicit authentication method.
+///
+/// Supports both custom queue endpoints (e.g. Azurite) and standard Azure endpoints.
+#[cfg(feature = "sources-azure_blob")]
+pub async fn build_queue_client(
+    auth: Option<AzureAuthentication>,
+    connection_string: &str,
+    queue_name: &str,
+    proxy: &crate::config::ProxyConfig,
+    tls: Option<AzureBlobTlsConfig>,
+) -> crate::Result<Arc<azure_storage_queue::QueueClient>> {
+    let parsed = ParsedConnectionString::parse(connection_string)
+        .map_err(|e| format!("Invalid connection string: {e}"))?;
+    // Compose queue URL (SAS appended if present)
+    let queue_url = parsed
+        .queue_url(queue_name)
+        .map_err(|e| format!("Failed to build queue URL: {e}"))?;
+    let url = Url::parse(&queue_url).map_err(|e| format!("Invalid queue URL: {e}"))?;
+
+    let mut options = azure_storage_queue::QueueClientOptions {
+        // Pin an Azurite-supported service version; the real service accepts older
+        // versions, and the SharedKey policy signs with the same version.
+        version: String::from(STORAGE_SERVICE_VERSION),
+        ..Default::default()
+    };
+    let credential = resolve_credential(&parsed, auth, &mut options.client_options).await?;
+    options.client_options.transport = Some(build_transport(&url, proxy, tls.as_ref())?);
+
+    let client = azure_storage_queue::QueueClient::new(url, credential, Some(options))
+        .map_err(|e| format!("{e}"))?;
     Ok(Arc::new(client))
 }
 
@@ -593,4 +655,72 @@ async fn azure_mock_token_credential_test() {
         access_token.token.secret(),
         "e30.eyJhdWQiOiJodHRwczovL2V4YW1wbGUuY29tIiwiZXhwIjoyMTQ3NDgzNjQ3LCJpYXQiOjAsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LyIsIm5iZiI6MH0."
     );
+}
+
+#[cfg(all(test, feature = "azure-blob-integration-tests"))]
+mod azure_integration_tests {
+    use azure_storage_queue::models::{
+        QueueClientReceiveMessagesOptions, QueueMessage, ReceivedMessages,
+    };
+
+    use super::*;
+
+    /// End-to-end SharedKey signing spike for the queue client against Azurite:
+    /// create (zero-body PUT), send, receive (query-parameter canonicalization),
+    /// and delete (zero-body DELETE) must all authorize correctly.
+    #[tokio::test]
+    async fn azure_queue_client_shared_key_roundtrip() {
+        let address = std::env::var("AZURITE_ADDRESS").unwrap_or_else(|_| "localhost".to_string());
+        let connection_string = format!(
+            "UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;QueueEndpoint=http://{address}:10001/devstoreaccount1;"
+        );
+        let queue_name = format!("spike-{}", rand::random::<u32>());
+        let client = build_queue_client(
+            None,
+            &connection_string,
+            &queue_name,
+            &crate::config::ProxyConfig::default(),
+            None,
+        )
+        .await
+        .expect("Failed to build queue client");
+
+        // Zero-body PUT: exercises the Content-Length empty-string signing rule.
+        client.create(None).await.expect("Failed to create queue");
+
+        let message = QueueMessage {
+            message_text: Some("spike".to_string()),
+        };
+        client
+            .send_message(message.try_into().expect("infallible"), None)
+            .await
+            .expect("Failed to send message");
+
+        // Query parameters: exercises canonicalized-resource query handling.
+        let received: ReceivedMessages = client
+            .receive_messages(Some(QueueClientReceiveMessagesOptions {
+                number_of_messages: Some(10),
+                visibility_timeout: Some(5),
+                ..Default::default()
+            }))
+            .await
+            .expect("Failed to receive messages")
+            .into_model()
+            .expect("Failed to parse received messages");
+
+        let items = received.items.unwrap_or_default();
+        assert_eq!(items.len(), 1, "expected exactly one message");
+        let msg = &items[0];
+        assert_eq!(msg.message_text.as_deref(), Some("spike"));
+
+        // Zero-body DELETE with pop-receipt query parameter.
+        client
+            .delete_message(
+                msg.message_id.as_deref().expect("message id present"),
+                msg.pop_receipt.as_deref().expect("pop receipt present"),
+                None,
+            )
+            .await
+            .expect("Failed to delete message");
+    }
 }
