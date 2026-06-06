@@ -1,3 +1,6 @@
+//! SharedKey authorization as an `azure_core` pipeline policy.
+#![allow(missing_docs)]
+
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 use async_trait::async_trait;
@@ -118,8 +121,11 @@ impl SharedKeyAuthorizationPolicy {
         }
         s.push('\n');
 
-        // Content-Length (include value if present; keep "0")
-        if let Some(v) = header("Content-Length") {
+        // Content-Length: must be the empty string when the content length of the
+        // request is zero (storage service versions 2015-02-21 and later).
+        if let Some(v) = header("Content-Length")
+            && v != "0"
+        {
             s.push_str(v);
         }
         s.push('\n');

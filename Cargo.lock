@@ -2039,6 +2039,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "azure_storage_queue"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e3836053722dfa5aa3461e47aebb96e230a87d8d22eb1f866ca704f691b93ae"
+dependencies = [
+ "async-trait",
+ "azure_core 1.0.0",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "azure_storage_queues"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13153,6 +13165,7 @@ dependencies = [
  "azure_storage",
  "azure_storage_blob",
  "azure_storage_blobs",
+ "azure_storage_queue",
  "azure_storage_queues",
  "base64 0.22.1",
  "bloomy",

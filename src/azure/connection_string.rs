@@ -45,6 +45,7 @@ Examples:
   "UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1"
   Container URL: <http://127.0.0.1:10000/devstoreaccount1/logs>
 */
+#![allow(missing_docs)]
 
 use std::collections::HashMap;
 

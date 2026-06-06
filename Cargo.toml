@@ -311,6 +311,7 @@ azure_identity = { version = "1.0", default-features = false, features = ["clien
 
 # Azure Storage
 azure_storage_blob = { version = "1.0", default-features = false, optional = true }
+azure_storage_queue = { version = "1.0", default-features = false, optional = true }
 azure_storage = { version = "0.21", default-features = false, optional = true }
 azure_storage_blobs = { version = "0.21", default-features = false, optional = true }
 azure_storage_queues = { version = "0.21", default-features = false, optional = true }
@@ -734,7 +735,7 @@ sources-aws_ecs_metrics = ["sources-utils-http-client"]
 sources-aws_kinesis_firehose = ["dep:base64"]
 sources-aws_s3 = ["aws-core", "dep:aws-sdk-sqs", "dep:aws-sdk-s3", "dep:async-compression", "sources-aws_sqs", "tokio-util/io"]
 sources-aws_sqs = ["aws-core", "dep:aws-sdk-sqs"]
-sources-azure_blob = ["azure", "dep:azure_core", "dep:azure_storage_queues", "dep:base64", "dep:async-compression", "tokio-util/io"]
+sources-azure_blob = ["azure", "dep:azure_core", "dep:azure_identity", "dep:azure_storage_blob", "dep:azure_storage_queue", "dep:azure_storage_queues", "dep:base64", "dep:async-compression", "tokio-util/io"]
 sources-datadog_agent = ["sources-utils-http-encoding", "protobuf-build", "dep:prost"]
 sources-demo_logs = ["dep:fakedata"]
 sources-dnstap = ["sources-utils-net-tcp", "dep:base64", "dep:hickory-proto", "dep:dnsmsg-parser", "dep:dnstap-parser", "protobuf-build", "dep:prost", "vector-vrl-functions/dnstap"]

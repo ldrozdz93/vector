@@ -1,14 +1,26 @@
 //! Shared Azure client infrastructure used by both sources and sinks.
 
+/// Client construction: authentication, credentials, and HTTP transport assembly.
+pub mod client;
+/// Azure Storage connection-string parsing and endpoint resolution.
+pub mod connection_string;
+/// SharedKey request signing for the new Azure SDK pipeline.
+pub mod shared_key_policy;
+
+#[cfg(feature = "azure")]
 use std::sync::Arc;
 
+#[cfg(feature = "azure")]
 use azure_core_for_storage::RetryOptions;
+#[cfg(feature = "azure")]
 use azure_storage::{CloudLocation, ConnectionString};
+#[cfg(feature = "azure")]
 use azure_storage_blobs::prelude::*;
 
 /// Builds an Azure Blob Storage container client from a connection string.
 ///
 /// Supports both custom blob endpoints (e.g. Azurite) and standard Azure Commercial endpoints.
+#[cfg(feature = "azure")]
 pub fn build_client(
     connection_string: String,
     container_name: String,
