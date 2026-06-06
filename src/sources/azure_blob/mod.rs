@@ -458,13 +458,17 @@ impl SourceConfig for AzureBlobConfig {
 
         let blob_stream: BlobWithAckStream = match self.blob_stream_factory {
             Some(ref factory) => factory(cx.shutdown.clone())?,
-            None => make_blob_with_ack_stream(
-                self,
-                cx.shutdown.clone(),
-                self.compression,
-                self.framing.clone(),
-                multiline_config,
-            )?,
+            None => {
+                make_blob_with_ack_stream(
+                    self,
+                    cx.shutdown.clone(),
+                    self.compression,
+                    self.framing.clone(),
+                    multiline_config,
+                    &cx.proxy,
+                )
+                .await?
+            }
         };
         Ok(Box::pin(azure_blob_streamer.run_streaming(blob_stream)))
     }

@@ -2,9 +2,11 @@ use std::{pin::Pin, sync::Arc, sync::Mutex};
 
 use async_compression::tokio::bufread::{GzipDecoder, ZstdDecoder};
 use async_stream::stream;
-use azure_core::{self};
-use azure_storage_blobs::prelude::ContainerClient;
-use azure_storage_queues::{QueueClient, operations::Message};
+use azure_core::http::StatusCode;
+use azure_storage_blob::models::{BlobClientDownloadOptions, BlobClientGetPropertiesResultHeaders};
+use azure_storage_blob::{BlobClient, BlobContainerClient};
+use azure_storage_queue::QueueClient;
+use azure_storage_queue::models::{QueueClientReceiveMessagesOptions, ReceivedMessage};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use bytes::Bytes;
 use futures::{FutureExt, future::ready, stream::StreamExt};
@@ -89,15 +91,17 @@ pub(super) struct Config {
 ///
 /// # Errors
 /// Returns an error if queue client creation fails or configuration is invalid
-pub fn make_blob_with_ack_stream(
+pub async fn make_blob_with_ack_stream(
     cfg: &AzureBlobConfig,
     shutdown: ShutdownSignal,
     compression: Compression,
     framing: vector_lib::codecs::decoding::FramingConfig,
     multiline_config: Option<line_agg::Config>,
+    proxy: &crate::config::ProxyConfig,
 ) -> crate::Result<BlobWithAckStream> {
-    let queue_client = make_queue_client(cfg)?;
-    let container_client = make_container_client(cfg)?;
+    let queue_client = make_queue_client(cfg, proxy).await?;
+    let container_client = make_container_client(cfg, proxy).await?;
+    let container_name = cfg.container_name.clone();
     let poll_interval = std::time::Duration::from_secs(
         cfg.queue
             .as_ref()
@@ -107,28 +111,31 @@ pub fn make_blob_with_ack_stream(
     let framer = framing.build();
     let queue_config = cfg.queue.as_ref().unwrap();
     let max_messages = queue_config.max_number_of_messages;
-    let visibility_timeout =
-        std::time::Duration::from_secs(queue_config.visibility_timeout_secs as u64);
+    let visibility_timeout_secs = queue_config.visibility_timeout_secs;
 
     Ok(Box::pin(stream! {
         loop {
             let messages = match queue_client
-                .get_messages()
-                .number_of_messages(max_messages)
-                .visibility_timeout(visibility_timeout)
+                .receive_messages(Some(QueueClientReceiveMessagesOptions {
+                    number_of_messages: Some(max_messages as i32),
+                    visibility_timeout: Some(visibility_timeout_secs as i32),
+                    ..Default::default()
+                }))
                 .await
+                .and_then(|response| response.into_model())
             {
-                Ok(messages) => messages,
+                Ok(messages) => messages.items.unwrap_or_default(),
                 Err(e) => {
                     emit!(QueueMessageReceiveError{error: &e});
                     continue;
                 }
             };
-            if !messages.messages.is_empty() {
-                for message in messages.messages {
-                    let msg_id = message.message_id.clone();
+            if !messages.is_empty() {
+                for message in messages {
+                    let msg_id = message.message_id.clone().unwrap_or_default();
                     match process_event_grid_message(
                         message,
+                        &container_name,
                         &container_client,
                         &queue_client,
                         compression,
@@ -180,9 +187,20 @@ pub fn make_blob_with_ack_stream(
 /// - The queue configuration is missing
 /// - The connection string is missing or invalid
 /// - The queue service client cannot be initialized
-pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient>> {
+pub async fn make_queue_client(
+    cfg: &AzureBlobConfig,
+    proxy: &crate::config::ProxyConfig,
+) -> crate::Result<Arc<QueueClient>> {
     let q = cfg.queue.clone().ok_or("Missing queue.")?;
-    crate::azure::build_queue_client(cfg.connection_string.inner(), q.queue_name)
+    crate::azure::client::build_queue_client(
+        None,
+        cfg.connection_string.inner(),
+        &q.queue_name,
+        proxy,
+        None,
+    )
+    .await
+    .map_err(|e| format!("Failed to create Azure queue client: {}", e).into())
 }
 
 /// Creates an Azure Blob Storage container client from the source configuration.
@@ -201,11 +219,18 @@ pub fn make_queue_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<QueueClient
 /// - The connection string is missing
 /// - The container client cannot be initialized
 /// - Azure authentication fails
-pub fn make_container_client(cfg: &AzureBlobConfig) -> crate::Result<Arc<ContainerClient>> {
-    crate::azure::build_client(
+pub async fn make_container_client(
+    cfg: &AzureBlobConfig,
+    proxy: &crate::config::ProxyConfig,
+) -> crate::Result<Arc<BlobContainerClient>> {
+    crate::azure::client::build_client(
+        None,
         cfg.connection_string.clone().into(),
         cfg.container_name.clone(),
+        proxy,
+        None,
     )
+    .await
     .map_err(|e| format!("Failed to create Azure container client: {}", e).into())
 }
 
@@ -265,29 +290,25 @@ fn apply_decompression(
 /// # Errors
 /// Returns an error if blob streaming fails
 async fn create_blob_stream(
-    blob_client: &azure_storage_blobs::prelude::BlobClient,
+    blob_client: &BlobClient,
     compression: Compression,
     blob_name: &str,
     content_type: Option<&str>,
 ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>, ProcessingError> {
-    let mut stream = blob_client.get().into_stream();
+    // Limit the managed download to a single in-flight range request so blob
+    // contents stream sequentially with bounded memory, matching the previous
+    // (legacy SDK) chunked streaming behavior.
+    let download = blob_client
+        .download(Some(BlobClientDownloadOptions {
+            parallel: std::num::NonZero::new(1),
+            ..Default::default()
+        }))
+        .await
+        .map_err(|e| ProcessingError::FailedToGetBlob { error: e })?;
 
-    let byte_stream = stream! {
-        while let Some(response) = stream.next().await {
-            match response {
-                Ok(resp) => {
-                    let mut body = resp.data;
-                    while let Some(chunk) = body.next().await {
-                        match chunk {
-                            Ok(data) => yield Ok(data),
-                            Err(e) => yield Err(std::io::Error::other(e)),
-                        }
-                    }
-                }
-                Err(e) => yield Err(std::io::Error::other(e)),
-            }
-        }
-    };
+    let byte_stream = download
+        .body
+        .map(|chunk| chunk.map_err(std::io::Error::other));
 
     let reader = Box::pin(StreamReader::new(byte_stream));
     Ok(apply_decompression(
@@ -324,6 +345,32 @@ pub enum ProcessingError {
 
     #[snafu(display("Failed to parse {} as subject", subject))]
     FailedToParseSubject { subject: String },
+
+    #[snafu(display("Queue message {} is missing required fields", message_id))]
+    IncompleteMessage { message_id: String },
+}
+
+/// The identifiers required to delete a message from the queue after processing.
+#[derive(Clone, Debug)]
+struct MessageHandle {
+    message_id: String,
+    pop_receipt: String,
+}
+
+impl MessageHandle {
+    /// Extract the deletion handle from a received message, failing if the service
+    /// response is missing either identifier.
+    fn from_message(message: &ReceivedMessage) -> Result<Self, ProcessingError> {
+        match (message.message_id.as_ref(), message.pop_receipt.as_ref()) {
+            (Some(message_id), Some(pop_receipt)) => Ok(Self {
+                message_id: message_id.clone(),
+                pop_receipt: pop_receipt.clone(),
+            }),
+            _ => Err(ProcessingError::IncompleteMessage {
+                message_id: message.message_id.clone().unwrap_or_default(),
+            }),
+        }
+    }
 }
 
 /// Processes an Azure Event Grid message from the storage queue.
@@ -337,34 +384,42 @@ pub enum ProcessingError {
 /// - `Ok(None)` - Event ignored (wrong type, wrong container, or blob doesn't exist)
 /// - `Err(ProcessingError)` - Failed to process message or retrieve blob
 async fn process_event_grid_message(
-    message: Message,
-    container_client: &ContainerClient,
-    queue_client: &QueueClient,
+    message: ReceivedMessage,
+    container_name: &str,
+    container_client: &BlobContainerClient,
+    queue_client: &Arc<QueueClient>,
     compression: Compression,
     framer: vector_lib::codecs::decoding::Framer,
     multiline_config: Option<line_agg::Config>,
 ) -> Result<Option<BlobWithAck>, ProcessingError> {
-    let msg_id = message.message_id.clone();
+    let handle = MessageHandle::from_message(&message)?;
+    let message_text =
+        message
+            .message_text
+            .as_deref()
+            .ok_or_else(|| ProcessingError::IncompleteMessage {
+                message_id: handle.message_id.clone(),
+            })?;
     let decoded_bytes = BASE64_STANDARD
-        .decode(&message.message_text)
+        .decode(message_text)
         .map_err(|e| ProcessingError::FailedDecodingMessageBase64 { error: e })?;
     let decoded_string = String::from_utf8(decoded_bytes)
         .map_err(|e| ProcessingError::FailedDecodingUTF8 { error: e })?;
     let body: AzureStorageEvent = serde_json::from_str(decoded_string.as_str()).map_err(|e| {
         ProcessingError::InvalidQueueMessage {
             error: e,
-            message_id: msg_id,
+            message_id: handle.message_id.clone(),
         }
     })?;
     if body.event_type != "Microsoft.Storage.BlobCreated"
         && body.event_type != "Microsoft.Storage.BlobRenamed"
     {
         emit!(QueueStorageInvalidEventIgnored {
-            container: container_client.container_name(),
+            container: container_name,
             subject: &body.subject,
             event_type: &body.event_type,
         });
-        remove_message_from_queue(queue_client, message).await;
+        remove_message_from_queue(queue_client, &handle).await;
         return Ok(None);
     }
     let (container, blob) =
@@ -372,12 +427,12 @@ async fn process_event_grid_message(
             subject: body.subject,
         })?;
 
-    if container != container_client.container_name() {
+    if container != container_name {
         emit!(QueueStorageMismatchingContainerName {
-            configured_container: container_client.container_name(),
+            configured_container: container_name,
             container: container.as_str(),
         });
-        remove_message_from_queue(queue_client, message).await;
+        remove_message_from_queue(queue_client, &handle).await;
         return Ok(None);
     }
     trace!(
@@ -390,22 +445,20 @@ async fn process_event_grid_message(
     // Note: Content-Encoding header is NOT used due to Azure SDK limitation.
     // When blobs have Content-Encoding set, the SDK fails with "header not found content-length"
     // because Azure uses chunked transfer encoding for such responses.
-    let content_type = match blob_client.get_properties().await {
-        Ok(response) => Some(response.blob.properties.content_type.clone()),
+    let content_type = match blob_client.get_properties(None).await {
+        Ok(response) => response
+            .content_type()
+            .map_err(|e| ProcessingError::FailedToGetBlob { error: e })?,
         Err(e) => {
             // Handle 404 (blob doesn't exist)
-            if let Some(http_error) = e.as_http_error()
-                && http_error.status() == 404u16
-            {
+            if e.http_status() == Some(StatusCode::NotFound) {
                 emit!(BlobDoesntExist {
-                    nonexistent_blob_name: blob_client.blob_name(),
+                    nonexistent_blob_name: &blob,
                 });
-                remove_message_from_queue(queue_client, message).await;
+                remove_message_from_queue(queue_client, &handle).await;
                 return Ok(None);
             }
-            return Err(ProcessingError::FailedToGetBlob {
-                error: azure_core::Error::new(azure_core::error::ErrorKind::Other, e),
-            });
+            return Err(ProcessingError::FailedToGetBlob { error: e });
         }
     };
 
@@ -414,7 +467,7 @@ async fn process_event_grid_message(
         create_blob_stream(&blob_client, compression, &blob, content_type.as_deref()).await?;
 
     // Use FramedRead with configurable framer
-    let queue_client_copy = queue_client.clone();
+    let queue_client_copy = Arc::clone(queue_client);
     let read_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let read_error_for_handler = Arc::clone(&read_error);
     let blob_for_warn = blob.clone();
@@ -463,10 +516,10 @@ async fn process_event_grid_message(
                             );
                             return;
                         }
-                        remove_message_from_queue(&queue_client_copy, message).await;
+                        remove_message_from_queue(&queue_client_copy, &handle).await;
                     }
                     StreamResult::Rejected => {
-                        remove_message_from_queue(&queue_client_copy, message).await;
+                        remove_message_from_queue(&queue_client_copy, &handle).await;
                     }
                     StreamResult::Errored => {
                         // Retain queue message for retry on transient errors.
@@ -528,10 +581,9 @@ const fn default_visibility_timeout_secs() -> u32 {
     300
 }
 
-async fn remove_message_from_queue(queue_client: &QueueClient, message: Message) {
+async fn remove_message_from_queue(queue_client: &QueueClient, handle: &MessageHandle) {
     _ = queue_client
-        .pop_receipt_client(message)
-        .delete()
+        .delete_message(&handle.message_id, &handle.pop_receipt, None)
         .await
         .inspect_err(move |e| emit!(QueueMessageDeleteError { error: &e }))
 }
@@ -660,8 +712,8 @@ fn test_config_deny_unknown_fields() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_make_queue_client_invalid_connection_string() {
+#[tokio::test]
+async fn test_make_queue_client_invalid_connection_string() {
     use crate::sources::azure_blob::AzureBlobConfig;
 
     let config = AzureBlobConfig {
@@ -675,12 +727,12 @@ fn test_make_queue_client_invalid_connection_string() {
         ..Default::default()
     };
 
-    let result = make_queue_client(&config);
+    let result = make_queue_client(&config, &crate::config::ProxyConfig::default()).await;
     assert!(result.is_err());
 }
 
-#[test]
-fn test_make_container_client_with_connection_string() {
+#[tokio::test]
+async fn test_make_container_client_with_connection_string() {
     use crate::sources::azure_blob::AzureBlobConfig;
 
     let config = AzureBlobConfig {
@@ -694,8 +746,11 @@ fn test_make_container_client_with_connection_string() {
         ..Default::default()
     };
 
-    let result = make_container_client(&config);
+    let result = make_container_client(&config, &crate::config::ProxyConfig::default()).await;
     assert!(result.is_ok());
     let client = result.unwrap();
-    assert_eq!(client.container_name(), "test-container");
+    assert_eq!(
+        client.url().as_str(),
+        "https://test.blob.core.windows.net/test-container"
+    );
 }

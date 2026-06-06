@@ -1,6 +1,9 @@
-use azure_storage_blobs::prelude::PublicAccess;
+use azure_core::http::{RequestContent, StatusCode};
+use azure_storage_blob::BlobContainerClient;
+use azure_storage_queue::{QueueClient, models::QueueMessage};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use flate2::{Compression as GzCompression, write::GzEncoder};
+use std::sync::Arc;
 use std::{io::Write, time::Duration};
 
 use super::{
@@ -8,6 +11,7 @@ use super::{
     queue::{Config, make_container_client, make_queue_client},
 };
 use crate::{
+    config::ProxyConfig,
     event::Event,
     serde::default_decoding,
     test_util::components::{
@@ -15,6 +19,34 @@ use crate::{
         run_and_assert_source_error,
     },
 };
+
+/// Test helper: build a container client with default proxy settings.
+async fn test_container_client(config: &AzureBlobConfig) -> Arc<BlobContainerClient> {
+    make_container_client(config, &ProxyConfig::default())
+        .await
+        .expect("Failed to create container client")
+}
+
+/// Test helper: build a queue client with default proxy settings.
+async fn test_queue_client(config: &AzureBlobConfig) -> Arc<QueueClient> {
+    make_queue_client(config, &ProxyConfig::default())
+        .await
+        .expect("Failed to create queue client")
+}
+
+/// Test helper: base64-encode a message and put it on the queue, as Event Grid does.
+async fn put_base64_message(queue_client: &QueueClient, message: &str) {
+    let queue_message = QueueMessage {
+        message_text: Some(BASE64_STANDARD.encode(message)),
+    };
+    queue_client
+        .send_message(
+            queue_message.try_into().expect("infallible conversion"),
+            None,
+        )
+        .await
+        .expect("Failed putting message");
+}
 
 impl AzureBlobConfig {
     pub async fn new_emulator() -> AzureBlobConfig {
@@ -47,60 +79,32 @@ impl AzureBlobConfig {
     }
 
     async fn ensure_container(&self) {
-        let client = make_container_client(self).expect("Failed to create container client");
-        let request = client
-            .create()
-            .public_access(PublicAccess::None)
-            .into_future();
+        let client = test_container_client(self).await;
 
-        let response = match request.await {
-            Ok(_) => Ok(()),
-            Err(reason) => {
-                let error_msg = reason.to_string();
-                // Check for HTTP 409 (Conflict) which means container already exists - this is OK
-                if error_msg.contains("409")
-                    || error_msg.contains("conflict")
-                    || error_msg.contains("already exists")
-                {
-                    Ok(())
-                } else {
-                    Err(format!("Unexpected error {}", reason))
-                }
-            }
-        };
-
-        response.expect("Failed to create container")
+        // HTTP 409 (Conflict) means the container already exists - this is OK
+        match client.create(None).await {
+            Ok(_) => {}
+            Err(e) if e.http_status() == Some(StatusCode::Conflict) => {}
+            Err(e) => panic!("Failed to create container: {e}"),
+        }
     }
 
     async fn ensure_queue(&self) {
-        let client = make_queue_client(self).expect("Failed to create queue client");
-        let request = client.create().into_future();
+        let client = test_queue_client(self).await;
 
-        let response = match request.await {
-            Ok(_) => Ok(()),
-            Err(reason) => {
-                let error_msg = reason.to_string();
-                // Check for HTTP 409 (Conflict) which means queue already exists - this is OK
-                if error_msg.contains("409")
-                    || error_msg.contains("conflict")
-                    || error_msg.contains("already exists")
-                {
-                    Ok(())
-                } else {
-                    Err(format!("Unexpected error {}", reason))
-                }
-            }
-        };
-
-        response.expect("Failed to create queue")
+        // HTTP 409 (Conflict) means the queue already exists - this is OK
+        match client.create(None).await {
+            Ok(_) => {}
+            Err(e) if e.http_status() == Some(StatusCode::Conflict) => {}
+            Err(e) => panic!("Failed to create queue: {e}"),
+        }
     }
 
     async fn upload_blob(&self, name: String, content: String) {
-        let container_client =
-            make_container_client(self).expect("Failed to create container client");
-        let blob_client = container_client.blob_client(name.clone());
+        let container_client = test_container_client(self).await;
+        let blob_client = container_client.blob_client(&name);
         blob_client
-            .put_block_blob(content)
+            .upload(RequestContent::from(content.into_bytes()), None)
             .await
             .expect("Failed putting blob");
 
@@ -108,9 +112,8 @@ impl AzureBlobConfig {
     }
 
     async fn upload_compressed_blob(&self, name: String, content: String, compression: &str) {
-        let container_client =
-            make_container_client(self).expect("Failed to create container client");
-        let blob_client = container_client.blob_client(name.clone());
+        let container_client = test_container_client(self).await;
+        let blob_client = container_client.blob_client(&name);
 
         let compressed_data = match compression {
             "gzip" => {
@@ -127,7 +130,7 @@ impl AzureBlobConfig {
         };
 
         blob_client
-            .put_block_blob(compressed_data)
+            .upload(RequestContent::from(compressed_data), None)
             .await
             .expect("Failed putting compressed blob");
 
@@ -135,7 +138,7 @@ impl AzureBlobConfig {
     }
 
     async fn queue_notify_blob_created(&self, name: &str) {
-        let queue_client = make_queue_client(self).expect("Failed to create queue client");
+        let queue_client = test_queue_client(self).await;
         let message = format!(
             r#"{{
           "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
@@ -162,14 +165,11 @@ impl AzureBlobConfig {
         }}"#,
             name, name
         );
-        queue_client
-            .put_message(BASE64_STANDARD.encode(message))
-            .await
-            .expect("Failed putting message");
+        put_base64_message(&queue_client, &message).await;
     }
 
     async fn queue_notify_blob_renamed(&self, name: &str) {
-        let queue_client = make_queue_client(self).expect("Failed to create queue client");
+        let queue_client = test_queue_client(self).await;
         let message = format!(
             r#"{{
           "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
@@ -193,13 +193,10 @@ impl AzureBlobConfig {
         }}"#,
             name, name
         );
-        queue_client
-            .put_message(BASE64_STANDARD.encode(message))
-            .await
-            .expect("Failed putting message");
+        put_base64_message(&queue_client, &message).await;
     }
     async fn queue_notify_custom_event(&self, name: &str, event_type: &str) {
-        let queue_client = make_queue_client(self).expect("Failed to create queue client");
+        let queue_client = test_queue_client(self).await;
         let message = format!(
             r#"{{
           "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
@@ -226,10 +223,7 @@ impl AzureBlobConfig {
         }}"#,
             name, event_type, name
         );
-        queue_client
-            .put_message(BASE64_STANDARD.encode(message))
-            .await
-            .expect("Failed putting message");
+        put_base64_message(&queue_client, &message).await;
     }
 }
 
@@ -273,11 +267,11 @@ async fn azure_blob_read_blob_renamed_event() {
     let content = "renamed_blob_content";
 
     // Upload blob to the destination path
-    let blob_client = make_container_client(&config)
-        .expect("Failed to create container client")
+    let blob_client = test_container_client(&config)
+        .await
         .blob_client("renamed-file.txt");
     blob_client
-        .put_block_blob(content)
+        .upload(RequestContent::from(content.as_bytes().to_vec()), None)
         .await
         .expect("Failed putting blob");
 
@@ -442,11 +436,8 @@ async fn azure_blob_read_json_content() {
 #[tokio::test]
 async fn azure_blob_handle_malformed_message() {
     let config = AzureBlobConfig::new_emulator().await;
-    let queue_client = make_queue_client(&config).expect("Failed to create queue client");
-    queue_client
-        .put_message(BASE64_STANDARD.encode("not a valid json"))
-        .await
-        .expect("Failed putting malformed message");
+    let queue_client = test_queue_client(&config).await;
+    put_base64_message(&queue_client, "not a valid json").await;
 
     config
         .upload_blob("file.txt".to_string(), "correct content".to_string())
@@ -630,11 +621,10 @@ async fn azure_blob_multipart_gzip() {
     let mut multipart = compressed1;
     multipart.extend(compressed2);
 
-    let container_client =
-        make_container_client(&config).expect("Failed to create container client");
+    let container_client = test_container_client(&config).await;
     let blob_client = container_client.blob_client("multipart.gz");
     blob_client
-        .put_block_blob(multipart)
+        .upload(RequestContent::from(multipart), None)
         .await
         .expect("Failed putting multipart blob");
 
@@ -986,7 +976,7 @@ async fn azure_blob_ignore_mismatching_container() {
     let config = AzureBlobConfig::new_emulator().await;
 
     // Send a BlobCreated event referencing a different container
-    let queue_client = make_queue_client(&config).expect("Failed to create queue client");
+    let queue_client = test_queue_client(&config).await;
     let message = r#"{
       "topic": "/subscriptions/fa5f2180-1451-4461-9b1f-aae7d4b33cf8/resourceGroups/events_poc/providers/Microsoft.Storage/storageAccounts/eventspocaccount",
       "subject": "/blobServices/default/containers/other-container/blobs/some-blob.txt",
@@ -1009,12 +999,8 @@ async fn azure_blob_ignore_mismatching_container() {
       "dataVersion": "",
       "metadataVersion": "1",
       "eventTime": "2024-05-09T11:37:10.5637878Z"
-    }"#
-    .to_string();
-    queue_client
-        .put_message(BASE64_STANDARD.encode(message))
-        .await
-        .expect("Failed putting message");
+    }"#;
+    put_base64_message(&queue_client, message).await;
 
     config
         .upload_blob("valid.txt".to_string(), "valid content".to_string())
