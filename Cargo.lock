@@ -1953,6 +1953,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "azure_storage_queue"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e3836053722dfa5aa3461e47aebb96e230a87d8d22eb1f866ca704f691b93ae"
+dependencies = [
+ "async-trait",
+ "azure_core",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "backon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12910,6 +12922,7 @@ dependencies = [
  "azure_core",
  "azure_identity",
  "azure_storage_blob",
+ "azure_storage_queue",
  "base64 0.22.1",
  "bloomy",
  "bollard",

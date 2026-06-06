@@ -1,0 +1,40 @@
+data_dir = "testing/data"
+
+# Source 1: Plain text logs (defaults: newline_delimited framing, bytes codec, auto compression)
+[sources.azure_logs_plain]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-plain"
+queue.queue_name = "queue-plain"
+
+# Source 2: JSON logs
+[sources.azure_logs_json]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-json"
+queue.queue_name = "queue-json"
+
+[sources.azure_logs_json.decoding]
+codec = "json"
+
+# Source 3: Multiline logs
+[sources.azure_logs_multiline]
+type = "azure_blob"
+connection_string = "${AZURE_STORAGE_CONNECTION_STRING}"
+container_name = "logs-multiline"
+queue.queue_name = "queue-multiline"
+
+[sources.azure_logs_multiline.multiline]
+start_pattern = '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+condition_pattern = '^[[:space:]]'
+mode = "continue_through"
+timeout_ms = 1000
+
+# Sink: Console output
+[sinks.console_output]
+type = "console"
+inputs = ["azure_logs_plain", "azure_logs_json", "azure_logs_multiline"]
+target = "stdout"
+
+[sinks.console_output.encoding]
+codec = "json"

@@ -78,6 +78,12 @@ pub mod app;
 pub mod async_read;
 #[cfg(feature = "aws-config")]
 pub mod aws;
+#[cfg(any(
+    feature = "sinks-azure_blob",
+    feature = "sinks-azure_logs_ingestion",
+    feature = "sources-azure_blob"
+))]
+pub mod azure;
 pub mod common;
 pub mod completion;
 mod convert_config;

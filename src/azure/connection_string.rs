@@ -45,6 +45,7 @@ Examples:
   "UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1"
   Container URL: <http://127.0.0.1:10000/devstoreaccount1/logs>
 */
+#![allow(missing_docs)]
 
 use std::collections::HashMap;
 
@@ -95,6 +96,7 @@ pub struct ParsedConnectionString {
     pub default_endpoints_protocol: Option<String>,
     pub endpoint_suffix: Option<String>,
     pub blob_endpoint: Option<String>,
+    pub queue_endpoint: Option<String>,
     pub use_development_storage: bool,
     pub development_storage_proxy_uri: Option<String>,
 }
@@ -131,6 +133,7 @@ impl ParsedConnectionString {
                 .map(|s| s.to_ascii_lowercase()),
             endpoint_suffix: map.get("endpointsuffix").cloned(),
             blob_endpoint: map.get("blobendpoint").cloned(),
+            queue_endpoint: map.get("queueendpoint").cloned(),
             use_development_storage: map
                 .get("usedevelopmentstorage")
                 .map(|v| v.eq_ignore_ascii_case("true"))
@@ -234,6 +237,55 @@ impl ParsedConnectionString {
         ))
     }
 
+    /// Build the base Queue endpoint URL (no queue path).
+    ///
+    /// Resolution order mirrors [`Self::blob_account_endpoint`]:
+    /// 1. QueueEndpoint (as-is)
+    /// 2. Development storage synthesized URL: `{proto}://127.0.0.1:10001/{account}`
+    ///    If DevelopmentStorageProxyUri is present, it will be used instead of 127.0.0.1:10001.
+    /// 3. Public cloud synthesized URL: `{proto}://{account}.queue.{suffix}`
+    pub fn queue_account_endpoint(&self) -> Result<String, ConnectionStringError> {
+        if let Some(explicit) = self.queue_endpoint.as_ref() {
+            return Ok(explicit.clone());
+        }
+
+        let account_name = self
+            .account_name
+            .as_ref()
+            .ok_or(ConnectionStringError::MissingAccountName)?;
+
+        let proto = self.default_protocol();
+
+        if self.use_development_storage {
+            // If the proxy URI is provided, use it. Otherwise default to 127.0.0.1:10001
+            let host = self
+                .development_storage_proxy_uri
+                .as_deref()
+                .map(|s| s.trim_end_matches('/').to_string())
+                .unwrap_or_else(|| "127.0.0.1:10001".to_string());
+
+            let base = if host.starts_with("http://") || host.starts_with("https://") {
+                format!("{}/{}", trim_trailing_slash(&host), account_name)
+            } else {
+                format!("{proto}://{host}/{}", account_name)
+            };
+            return Ok(base);
+        }
+
+        // Public cloud-style base
+        let suffix = self.endpoint_suffix();
+        Ok(format!("{proto}://{}.queue.{}", account_name, suffix))
+    }
+
+    /// Build a queue URL, optionally appending SAS if present.
+    pub fn queue_url(&self, queue: &str) -> Result<String, ConnectionStringError> {
+        let base = self.queue_account_endpoint()?;
+        Ok(append_query_segment(
+            &format!("{}/{}", trim_trailing_slash(&base), queue),
+            self.shared_access_signature.as_deref(),
+        ))
+    }
+
     /// Build a blob URL, optionally appending SAS if present.
     pub fn blob_url(&self, container: &str, blob: &str) -> Result<String, ConnectionStringError> {
         // Build the base container URL without SAS, then append the blob path,
@@ -288,6 +340,54 @@ fn encode_path_segment(seg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queue_endpoint_public_cloud() {
+        let cs = "DefaultEndpointsProtocol=https;AccountName=myacct;AccountKey=base64==;EndpointSuffix=core.windows.net";
+        let parsed = ParsedConnectionString::parse(cs).unwrap();
+        assert_eq!(
+            parsed.queue_account_endpoint().unwrap(),
+            "https://myacct.queue.core.windows.net"
+        );
+        assert_eq!(
+            parsed.queue_url("events").unwrap(),
+            "https://myacct.queue.core.windows.net/events"
+        );
+    }
+
+    #[test]
+    fn queue_endpoint_explicit_overrides_dev_storage() {
+        let cs = "UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=key==;QueueEndpoint=http://azurite:10001/devstoreaccount1;";
+        let parsed = ParsedConnectionString::parse(cs).unwrap();
+        assert_eq!(
+            parsed.queue_account_endpoint().unwrap(),
+            "http://azurite:10001/devstoreaccount1"
+        );
+        assert_eq!(
+            parsed.queue_url("events").unwrap(),
+            "http://azurite:10001/devstoreaccount1/events"
+        );
+    }
+
+    #[test]
+    fn queue_endpoint_dev_storage_default() {
+        let cs = "UseDevelopmentStorage=true;AccountName=devstoreaccount1;AccountKey=key==";
+        let parsed = ParsedConnectionString::parse(cs).unwrap();
+        assert_eq!(
+            parsed.queue_account_endpoint().unwrap(),
+            "http://127.0.0.1:10001/devstoreaccount1"
+        );
+    }
+
+    #[test]
+    fn queue_url_appends_sas() {
+        let cs = "AccountName=myacct;SharedAccessSignature=sv=2020&sig=abc;";
+        let parsed = ParsedConnectionString::parse(cs).unwrap();
+        assert_eq!(
+            parsed.queue_url("events").unwrap(),
+            "https://myacct.queue.core.windows.net/events?sv=2020&sig=abc"
+        );
+    }
 
     #[test]
     fn parse_access_key_public_cloud() {

@@ -972,6 +972,41 @@ components: sources: internal_metrics: {
 				}
 			}
 		}
+		azure_queue_message_processing_succeeded_total: {
+			description:       "The total number of Azure queue messages successfully processed."
+			type:              "counter"
+			default_namespace: "vector"
+			tags:              _component_tags
+		}
+		azure_queue_message_processing_errored_total: {
+			description:       "The total number of Azure queue messages that had transient delivery errors."
+			type:              "counter"
+			default_namespace: "vector"
+			tags:              _component_tags
+		}
+		azure_queue_message_processing_rejected_total: {
+			description:       "The total number of Azure queue messages permanently rejected."
+			type:              "counter"
+			default_namespace: "vector"
+			tags:              _component_tags
+		}
+		azure_queue_event_ignored_total: {
+			description:       "The total number of Azure queue events ignored."
+			type:              "counter"
+			default_namespace: "vector"
+
+			tags: _component_tags & {
+				ignore_type: {
+					description: "The reason for ignoring the event."
+					required:    true
+					enum: {
+						"invalid_event_type":         "The event type was not BlobCreated or BlobRenamed."
+						"mismatching_container_name": "The container name did not match the configured container."
+						"blob_doesnt_exist":          "The blob no longer exists in storage."
+					}
+				}
+			}
+		}
 		stale_events_flushed_total: {
 			description:       "The number of stale events that Vector has flushed."
 			type:              "counter"

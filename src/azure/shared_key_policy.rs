@@ -1,3 +1,6 @@
+//! SharedKey authorization as an `azure_core` pipeline policy.
+#![allow(missing_docs)]
+
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 use async_trait::async_trait;
@@ -118,9 +121,18 @@ impl SharedKeyAuthorizationPolicy {
         }
         s.push('\n');
 
-        // Content-Length (include value if present; keep "0")
-        if let Some(v) = header("Content-Length") {
-            s.push_str(v);
+        // Content-Length: must be the empty string when the content length of the
+        // request is zero (storage service versions 2015-02-21 and later).
+        //
+        // Generated SDK clients do not always set this header themselves — for
+        // body-carrying requests the HTTP transport adds it when sending — so fall
+        // back to the actual body length to sign the value the service will see.
+        let content_length = header("Content-Length")
+            .map(str::to_string)
+            .or_else(|| req.body().len().map(|l| l.to_string()))
+            .unwrap_or_default();
+        if content_length != "0" {
+            s.push_str(&content_length);
         }
         s.push('\n');
 
