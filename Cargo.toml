@@ -312,12 +312,6 @@ azure_identity = { version = "1.0", default-features = false, features = ["clien
 # Azure Storage
 azure_storage_blob = { version = "1.0", default-features = false, optional = true }
 azure_storage_queue = { version = "1.0", default-features = false, optional = true }
-azure_storage = { version = "0.21", default-features = false, optional = true }
-azure_storage_blobs = { version = "0.21", default-features = false, optional = true }
-azure_storage_queues = { version = "0.21", default-features = false, optional = true }
-
-# Needed to bridge with outdated version of azure_core used in azure_storage*
-azure_core_for_storage = { package = "azure_core", version = "0.21.0", default-features = false, features = ["enable_reqwest", "hmac_openssl"], optional = true }
 
 # OpenDAL
 opendal = { version = "0.54", default-features = false, features = ["services-webhdfs"], optional = true }
@@ -498,9 +492,6 @@ approx = "0.5.1"
 strum.workspace = true
 assert_cmd = { version = "2.0.17", default-features = false }
 aws-smithy-runtime = { version = "1.8.3", default-features = false, features = ["tls-rustls"] }
-azure_storage = { version = "0.21", default-features = false, features = ["enable_reqwest", "hmac_openssl"] }
-azure_storage_blobs = { version = "0.21", default-features = false, features = ["enable_reqwest", "hmac_openssl", "azurite_workaround"] }
-azure_storage_queues = { version = "0.21", default-features = false }
 base64 = "0.22.1"
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 itertools.workspace = true
@@ -636,7 +627,6 @@ api-client-minimal = [
 
 top = ["vector-lib/vector-top", "vector-lib/api-client"]
 
-azure = ["dep:azure_storage", "dep:azure_storage_blobs", "dep:azure_core_for_storage"]
 
 aws-core = [
   "aws-runtime",
@@ -735,7 +725,7 @@ sources-aws_ecs_metrics = ["sources-utils-http-client"]
 sources-aws_kinesis_firehose = ["dep:base64"]
 sources-aws_s3 = ["aws-core", "dep:aws-sdk-sqs", "dep:aws-sdk-s3", "dep:async-compression", "sources-aws_sqs", "tokio-util/io"]
 sources-aws_sqs = ["aws-core", "dep:aws-sdk-sqs"]
-sources-azure_blob = ["azure", "dep:azure_core", "dep:azure_identity", "dep:azure_storage_blob", "dep:azure_storage_queue", "dep:azure_storage_queues", "dep:base64", "dep:async-compression", "tokio-util/io"]
+sources-azure_blob = ["dep:azure_core", "dep:azure_identity", "dep:azure_storage_blob", "dep:azure_storage_queue", "dep:base64", "dep:async-compression", "tokio-util/io"]
 sources-datadog_agent = ["sources-utils-http-encoding", "protobuf-build", "dep:prost"]
 sources-demo_logs = ["dep:fakedata"]
 sources-dnstap = ["sources-utils-net-tcp", "dep:base64", "dep:hickory-proto", "dep:dnsmsg-parser", "dep:dnstap-parser", "protobuf-build", "dep:prost", "vector-vrl-functions/dnstap"]
